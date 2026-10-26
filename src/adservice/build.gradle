@@ -15,8 +15,8 @@ group = "adservice"
 version = "0.1.0-SNAPSHOT"
 
 def grpcVersion = "1.84.0"
-def jacksonCoreVersion = "2.22.2"
-def jacksonDatabindVersion = "2.22.2"
+def jacksonCoreVersion = "2.22.3"
+def jacksonDatabindVersion = "2.22.3"
 def protocVersion = "4.36.1"
 
 tasks.withType(JavaCompile) {
@@ -33,6 +33,8 @@ dependencies {
     if (speed) {
         implementation fileTree(dir: offlineCompile, include: '*.jar')
     } else {
+        // Alinea todos los módulos de Netty (transitivos de grpc-netty) en la versión corregida
+        implementation platform("io.netty:netty-bom:4.2.17.Final")
         implementation "com.google.api.grpc:proto-google-common-protos:2.76.0",
                 "javax.annotation:javax.annotation-api:1.3.2",
                 "io.grpc:grpc-protobuf:${grpcVersion}",

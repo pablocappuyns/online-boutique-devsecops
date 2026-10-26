@@ -37,8 +37,12 @@ FROM eclipse-temurin:25.0.4_7-jre-alpine@sha256:3137541deb3cac6626b5d9a4a2187bc0
 #     | tar xzv -C /opt/cprof && \
 #     rm -rf profiler_java_agent.tar.gz
 
+# Parches de seguridad del sistema publicados después de la imagen base
+RUN apk upgrade --no-cache
 WORKDIR /app
 COPY --from=builder /app .
 
 EXPOSE 9555
+# Usuario sin privilegios también en la imagen (Kubernetes ya fuerza runAsNonRoot)
+USER 1000:1000
 ENTRYPOINT ["/app/build/install/hipstershop/bin/AdService"]
