@@ -95,9 +95,11 @@ func ensureSessionID(next http.Handler) http.HandlerFunc {
 				sessionID = u.String()
 			}
 			http.SetCookie(w, &http.Cookie{
-				Name:   cookieSessionID,
-				Value:  sessionID,
-				MaxAge: cookieMaxAge,
+				Name:     cookieSessionID,
+				Value:    sessionID,
+				MaxAge:   cookieMaxAge,
+				HttpOnly: true,                 // no accesible desde JavaScript
+				SameSite: http.SameSiteLaxMode, // mitiga CSRF en los formularios POST
 			})
 		} else if err != nil {
 			return
@@ -108,4 +110,29 @@ func ensureSessionID(next http.Handler) http.HandlerFunc {
 		r = r.WithContext(ctx)
 		next.ServeHTTP(w, r)
 	}
+}
+
+// contentSecurityPolicy permite solo los orígenes que usan las plantillas: Bootstrap (CDN, con
+// integridad SRI) y Google Fonts. Los estilos en línea de las plantillas obligan a mantener
+// 'unsafe-inline' en style-src; los scripts no lo necesitan (sin manejadores en línea).
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' https://stackpath.bootstrapcdn.com; " +
+	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://stackpath.bootstrapcdn.com; " +
+	"font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; " +
+	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders añade las cabeceras de seguridad HTTP que el análisis DAST encontró ausentes.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Embedder-Policy", "credentialless")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
 }

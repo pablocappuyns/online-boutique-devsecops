@@ -71,7 +71,7 @@
                         <div class="h-control">
                             <span class="icon currency-icon"> {{ renderCurrencyLogo $.user_currency}}</span>
                             <form method="POST" class="controls-form" action="{{ $.baseUrl }}/setCurrency" id="currency_form" >
-                                <select name="currency_code" onchange="document.getElementById('currency_form').submit();">
+                                <select name="currency_code" id="currency_select">
                                         {{range $.currencies}}
                                     <option value="{{.}}" {{if eq . $.user_currency}}selected="selected"{{end}}>{{.}}</option>
                                     {{end}}

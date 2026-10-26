@@ -23,6 +23,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -509,17 +510,29 @@ func (fe *frontendServer) setCurrencyHandler(w http.ResponseWriter, r *http.Requ
 
 	if payload.Currency != "" {
 		http.SetCookie(w, &http.Cookie{
-			Name:   cookieCurrency,
-			Value:  payload.Currency,
-			MaxAge: cookieMaxAge,
+			Name:     cookieCurrency,
+			Value:    payload.Currency,
+			MaxAge:   cookieMaxAge,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
 		})
 	}
-	referer := r.Header.Get("referer")
-	if referer == "" {
-		referer = baseUrl + "/"
-	}
-	w.Header().Set("Location", referer)
+	w.Header().Set("Location", localRedirect(r.Header.Get("referer")))
 	w.WriteHeader(http.StatusFound)
+}
+
+// localRedirect devuelve una ruta local a partir del Referer. Antes se redirigía al valor del
+// Referer tal cual, lo que permitía redirigir a un dominio externo (CWE-601): ahora solo se
+// conserva la ruta, y solo si pertenece a la propia aplicación.
+func localRedirect(referer string) string {
+	u, err := url.Parse(referer)
+	if err != nil || u.Path == "" || !strings.HasPrefix(u.Path, baseUrl+"/") || strings.HasPrefix(u.Path, "//") {
+		return baseUrl + "/"
+	}
+	if u.RawQuery != "" {
+		return u.Path + "?" + u.RawQuery
+	}
+	return u.Path
 }
 
 // chooseAd queries for advertisements available and randomly chooses one, if
