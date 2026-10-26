@@ -28,10 +28,13 @@ WORKDIR /usr/src/app
 
 COPY package*.json ./
 
-RUN npm install --only=production
+# Instalación reproducible desde el package-lock.json y sin dependencias de desarrollo
+RUN npm ci --omit=dev
 
-FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
+# Parches de seguridad del sistema publicados después de la imagen base
+RUN apk upgrade --no-cache
 RUN apk add --no-cache nodejs
 
 WORKDIR /usr/src/app
@@ -42,4 +45,6 @@ COPY . .
 
 EXPOSE 7000
 
+# Usuario sin privilegios también en la imagen (Kubernetes ya fuerza runAsNonRoot)
+USER 1000:1000
 ENTRYPOINT [ "node", "server.js" ]
