@@ -53,11 +53,14 @@ jobs:
     name: SAST (Semgrep)
     runs-on: ubuntu-24.04
     container: semgrep/semgrep:1.100.0@sha256:7acf76eaa621465588fdfcc84f46fd7ea1e8337ebb1aa1ed6f4685f6eedaec25
+    env:
+      # Alcance: los 10 servicios desplegados (fuera el generador de carga y el asistente opcional)
+      SEMGREP_SCOPE: --exclude=src/loadgenerator --exclude=src/shoppingassistantservice
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Semgrep scan (informe)
         run: |
-          semgrep scan --config p/default --config p/owasp-top-ten --metrics off \
+          semgrep scan --config p/default --config p/owasp-top-ten --metrics off $SEMGREP_SCOPE \
             --sarif-output=semgrep.sarif --json-output=semgrep.json src || true
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
@@ -67,17 +70,19 @@ jobs:
             semgrep.json
       - name: Gate SAST (falla con hallazgos de severidad ERROR = High)
         if: env.GATE == '1'
-        run: semgrep scan --config p/default --config p/owasp-top-ten --metrics off --severity ERROR --error src
+        run: semgrep scan --config p/default --config p/owasp-top-ten --metrics off --severity ERROR --error $SEMGREP_SCOPE src
 
   # ---------- 2. SCA / dependencias ----------
   sca:
     name: SCA (Trivy fs)
     runs-on: ubuntu-24.04
+    env:
+      TRIVY_SCOPE: --skip-dirs /src/src/loadgenerator --skip-dirs /src/src/shoppingassistantservice
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Trivy filesystem (go.sum, package-lock.json, requirements.txt)
         run: |
-          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln \
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln $TRIVY_SCOPE \
             --format json --output /src/trivy-fs.json /src/src
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
@@ -87,7 +92,7 @@ jobs:
       - name: Gate SCA (falla con Critical/High)
         if: env.GATE == '1'
         run: |
-          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln \
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln $TRIVY_SCOPE \
             --severity CRITICAL,HIGH --ignorefile /src/.trivyignore --exit-code 1 /src/src
 
   # ---------- 3. Detección de secretos ----------
