@@ -39,6 +39,7 @@ ENV PYTHONUNBUFFERED=1
 ENV ENABLE_PROFILER=1
 
 RUN apk update \
+    && apk upgrade --no-cache \
     && apk add --no-cache libstdc++ \
     && rm -rf /var/cache/apk/*
 
@@ -47,8 +48,13 @@ WORKDIR /email_server
 # Grab packages from builder
 COPY --from=builder /usr/local/lib/python3.14/ /usr/local/lib/python3.14/
 
+# pip y setuptools no se usan en ejecución: se retiran del runtime
+RUN python -m pip uninstall -y pip setuptools
+
 # Add the application
 COPY . .
 
 EXPOSE 8080
+# Usuario sin privilegios también en la imagen (Kubernetes ya fuerza runAsNonRoot)
+USER 1000:1000
 ENTRYPOINT [ "python", "email_server.py" ]

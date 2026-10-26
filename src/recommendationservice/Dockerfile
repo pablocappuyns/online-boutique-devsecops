@@ -36,6 +36,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 RUN apk update \
+    && apk upgrade --no-cache \
     && apk add --no-cache libstdc++ \
     && rm -rf /var/cache/apk/*
 
@@ -45,6 +46,9 @@ WORKDIR /recommendationservice
 # Grab packages from builder
 COPY --from=builder /usr/local/lib/python3.14/ /usr/local/lib/python3.14/
 
+# pip y setuptools no se usan en ejecución: se retiran del runtime
+RUN python -m pip uninstall -y pip setuptools
+
 # Add the application
 COPY . .
 
@@ -52,4 +56,6 @@ COPY . .
 ENV PORT="8080"
 EXPOSE 8080
 
+# Usuario sin privilegios también en la imagen (Kubernetes ya fuerza runAsNonRoot)
+USER 1000:1000
 ENTRYPOINT ["python", "recommendation_server.py"]
