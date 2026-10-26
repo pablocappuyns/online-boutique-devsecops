@@ -33,6 +33,26 @@ def load(path):
         return None
 
 
+def load_multi(path):
+    """Checkov con varios -d escribe un documento JSON por directorio, concatenados."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    dec, pos, docs = json.JSONDecoder(), 0, []
+    while pos < len(text):
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+        if pos >= len(text):
+            break
+        try:
+            obj, pos = dec.raw_decode(text, pos)
+        except ValueError:
+            return docs or None
+        docs += obj if isinstance(obj, list) else [obj]
+    return docs
+
+
 def norm(s):
     s = (s or "").strip().lower()
     return {"critical": "Critical", "high": "High", "medium": "Medium", "moderate": "Medium",
@@ -146,6 +166,17 @@ def supply_chain(d):
     for ln in filter(None, (x.strip() for x in lines)):
         svc, *kv = ln.split()
         out[svc] = dict(x.split("=", 1) for x in kv)
+    # Firma + SBOM atestado según Kyverno (regla verify-image-signatures en la admisión)
+    pr = load(d / "admission-kyverno" / "policyreports.json") or {}
+    res = {}
+    for rep in pr.get("items", []) or []:
+        wl = workload(rep.get("scope") or {})
+        for r in rep.get("results", []) or []:
+            if r.get("policy") == "verify-image-signatures" and wl in out:
+                res.setdefault(wl, set()).add(r.get("result"))
+    for svc in out:
+        st = res.get(svc)
+        out[svc]["sbom"] = "n/d" if not st else ("ok" if st == {"pass"} else "fail")
     return out
 
 
@@ -160,13 +191,17 @@ def gitleaks(d):
 
 
 def checkov(d):
-    data = load(d / "iac-checkov" / "checkov.json")
-    if data is None:
+    blocks = load_multi(d / "iac-checkov" / "checkov.json")
+    if blocks is None:
         return None, []
-    blocks = data if isinstance(data, list) else [data]
-    c, items = Counter(), []
+    c, items, seen = Counter(), [], set()
     for b in blocks:
         for f in b.get("results", {}).get("failed_checks", []) or []:
+            # Un mismo fallo aparece en varios documentos (uno por -d y framework): se cuenta una vez
+            key = (f.get("check_id"), f.get("file_path"), f.get("resource"))
+            if key in seen:
+                continue
+            seen.add(key)
             sev = norm(f.get("severity")) if f.get("severity") else "High"
             c[sev] += 1
             items.append({"id": f.get("check_id"), "name": f.get("check_name"),

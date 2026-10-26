@@ -129,7 +129,7 @@ jobs:
         run: |
           checkov -d kubernetes-manifests -d src -d terraform -d .github/workflows \
             --framework kubernetes dockerfile terraform github_actions \
-            --skip-path kustomize --skip-path helm-chart --skip-path release \
+            --skip-path loadgenerator --skip-path shoppingassistantservice \
             -o json --soft-fail > checkov.json
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
@@ -141,7 +141,7 @@ jobs:
         run: |
           checkov -d kubernetes-manifests -d src -d terraform -d .github/workflows \
             --framework kubernetes dockerfile terraform github_actions \
-            --skip-path kustomize --skip-path helm-chart --skip-path release \
+            --skip-path loadgenerator --skip-path shoppingassistantservice \
             --config-file devsecops/checkov.yaml --compact
 
   # ---------- 5. Build, análisis de imagen, SBOM, firma y procedencia ----------
@@ -248,7 +248,8 @@ jobs:
     if: always() && !cancelled()
     permissions:
       contents: read
-      packages: read
+      packages: write   # imágenes de las pruebas negativas
+      id-token: write   # firma keyless de la imagen de prueba sin SBOM
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -269,13 +270,13 @@ jobs:
           : > admission/supply-chain.txt
           for f in images/container-*/digest.txt; do
             read -r svc ref < "$f"
-            sig=fail; sbom=fail; prov=fail; log="admission/verify-$svc.log"
+            # La attestation del SBOM (formato cosign) la verifica Kyverno en la admisión: cosign 2.x
+            # en línea de comandos solo encuentra la attestation SLSA que publica GitHub
+            sig=fail; prov=fail; log="admission/verify-$svc.log"
             cosign verify --certificate-identity "$ID" \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>>"$log" && sig=ok
-            cosign verify-attestation --type cyclonedx --certificate-identity "$ID" \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>>"$log" && sbom=ok
             gh attestation verify "oci://$ref" -R "$GITHUB_REPOSITORY" >/dev/null 2>>"$log" && prov=ok
-            echo "$svc firma=$sig sbom=$sbom provenance=$prov" | tee -a admission/supply-chain.txt
+            echo "$svc firma=$sig provenance=$prov" | tee -a admission/supply-chain.txt
           done
       - name: Clúster kind
         uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
@@ -332,20 +333,33 @@ jobs:
           unsigned="${REGISTRY,,}/unsigned-test:${{ github.sha }}"
           docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$unsigned"
           docker push -q "$unsigned"
+          # Por digest, para que el rechazo se deba a la firma y no a la política de digest
+          unsigned="${unsigned%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$unsigned" | cut -d@ -f2)"
           if kubectl -n boutique run unsigned-test --image="$unsigned" --restart=Never \
                --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$unsigned"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
                > admission/neg-unsigned.txt 2>&1; then
             echo "FALLO: imagen sin firmar admitida"; r1=admitted
           else r1=denied; fi
-          # 2) Pod privilegiado con imagen fijada por digest: debe ser rechazado por Pod Security restricted
+          # 2) Imagen firmada por el pipeline pero sin SBOM atestado: debe ser rechazada (attestations)
+          nosbom="${REGISTRY,,}/nosbom-test:${{ github.sha }}"
+          docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$nosbom"
+          docker push -q "$nosbom"
+          nosbom_ref="${nosbom%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$nosbom" | cut -d@ -f2)"
+          cosign sign --yes "$nosbom_ref"
+          if kubectl -n boutique run nosbom-test --image="$nosbom_ref" --restart=Never \
+               --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$nosbom_ref"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+               > admission/neg-nosbom.txt 2>&1; then
+            echo "FALLO: imagen sin SBOM admitida"; r3=admitted
+          else r3=denied; fi
+          # 3) Pod privilegiado con imagen fijada por digest: debe ser rechazado por Pod Security restricted
           if kubectl -n boutique run priv-test --restart=Never \
                --image=busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 \
                --privileged -- sleep 5 > admission/neg-privileged.txt 2>&1; then
             echo "FALLO: pod privilegiado admitido"; r2=admitted
           else r2=denied; fi
           cat admission/neg-*.txt
-          echo "{\"unsigned_image\": \"$r1\", \"privileged_pod\": \"$r2\"}" | tee admission/negative-tests.json
-          test "$r1" = denied && test "$r2" = denied
+          echo "{\"unsigned_image\": \"$r1\", \"signed_without_sbom\": \"$r3\", \"privileged_pod\": \"$r2\"}" | tee admission/negative-tests.json
+          test "$r1" = denied && test "$r2" = denied && test "$r3" = denied
       - name: Recoger PolicyReports
         if: always()
         run: |
