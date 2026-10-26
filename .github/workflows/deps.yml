@@ -1,0 +1,51 @@
+name: Actualizacion de dependencias Go (auxiliar)
+
+# Flujo auxiliar de remediación: resuelve go.mod/go.sum con la toolchain fijada y publica los
+# ficheros resultantes como artefacto. No escribe en el repositorio (token de solo lectura): el
+# cambio se revisa y se confirma a mano como un commit de remediación más.
+
+on:
+  workflow_dispatch:
+    inputs:
+      modules:
+        description: "Módulos a actualizar (módulo@versión separados por espacios)"
+        default: "golang.org/x/net@v0.60.0"
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    container: golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d
+    env:
+      GOTOOLCHAIN: local
+      MODULES: ${{ inputs.modules }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: go get + go mod tidy por servicio
+        run: |
+          for m in $MODULES; do
+            echo "$m" | grep -Eq '^[A-Za-z0-9./_-]+@v[0-9][A-Za-z0-9.+-]*$' || { echo "módulo no válido: $m"; exit 1; }
+          done
+          for s in checkoutservice frontend productcatalogservice shippingservice; do
+            echo "== $s"
+            cd "src/$s"
+            go get $MODULES
+            go mod edit -toolchain=go1.27.2
+            go mod tidy
+            go build ./... && echo "build OK"
+            cd - >/dev/null
+          done
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: go-modules
+          path: |
+            src/checkoutservice/go.mod
+            src/checkoutservice/go.sum
+            src/frontend/go.mod
+            src/frontend/go.sum
+            src/productcatalogservice/go.mod
+            src/productcatalogservice/go.sum
+            src/shippingservice/go.mod
+            src/shippingservice/go.sum
