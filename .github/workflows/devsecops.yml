@@ -1,0 +1,402 @@
+name: DevSecOps Pipeline
+
+# Pipeline DevSecOps del TFM (tipo D) sobre Online Boutique (10 microservicios gRPC en Go, C#,
+# Node.js, Python y Java desplegados en Kubernetes).
+#
+# Fases:
+#   1. Controles sobre el código: SAST, SCA, secretos e IaC (manifiestos, Dockerfiles, Terraform, workflows).
+#   2. Build por servicio: imagen -> análisis Trivy -> SBOM CycloneDX -> push a GHCR por digest ->
+#      firma keyless (cosign + OIDC de GitHub) -> attestation del SBOM -> provenance SLSA (GitHub).
+#   3. Despliegue efímero en kind con Kyverno como control de admisión (verifica firma y Pod Security
+#      "restricted") y DAST con OWASP ZAP contra el frontend.
+#   4. Normalización de hallazgos por severidad.
+#
+# Security gate conmutable con 'enforce_gates':
+#   - false (por defecto y en cada push): modo informe. No rompe el build y las políticas de Kyverno
+#     van en Audit (se registran las violaciones en PolicyReports). Estado "antes".
+#   - true (ejecución manual): gates en Critical/High y políticas en Enforce, con pruebas negativas
+#     de admisión (imagen sin firmar y pod privilegiado deben ser rechazados). Estado "después".
+# Versiones de herramientas y acciones fijadas (tag@digest o SHA) para que las ejecuciones sean comparables.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      enforce_gates:
+        description: "Aplicar security gates y políticas de admisión en Enforce"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devsecops-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GATE: ${{ (github.event_name == 'workflow_dispatch' && inputs.enforce_gates) && '1' || '0' }}
+  REGISTRY: ghcr.io/${{ github.repository }}
+  TRIVY_IMAGE: aquasec/trivy:0.58.1@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.24.0@sha256:2bcceac45179b3a91bff11a824d0fb952585b429e54fc928728b1d4d5c3e5176
+  ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:2.17.0@sha256:030d3df57735dacbb83464854758e674dd9ad01d79d12a129a8e58b1fd384238
+  # cosign 2.x: firmas en el formato clásico (etiqueta .sig), el que verifica verifyImages de Kyverno
+  COSIGN_VERSION: v2.6.5
+  KIND_NODE: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+  KYVERNO_CHART: "3.9.1"
+  KYVERNO_CHART_SHA256: 7b7fe51a431b5b133b0ce7eb9dcb222b6a37fb967c163223cf480054ad14d752
+
+jobs:
+  # ---------- 1. SAST ----------
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-24.04
+    container: semgrep/semgrep:1.100.0@sha256:7acf76eaa621465588fdfcc84f46fd7ea1e8337ebb1aa1ed6f4685f6eedaec25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Semgrep scan (informe)
+        run: |
+          semgrep scan --config p/default --config p/owasp-top-ten --metrics off \
+            --sarif-output=semgrep.sarif --json-output=semgrep.json src || true
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: sast-semgrep
+          path: |
+            semgrep.sarif
+            semgrep.json
+      - name: Gate SAST (falla con hallazgos de severidad ERROR = High)
+        if: env.GATE == '1'
+        run: semgrep scan --config p/default --config p/owasp-top-ten --metrics off --severity ERROR --error src
+
+  # ---------- 2. SCA / dependencias ----------
+  sca:
+    name: SCA (Trivy fs)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Trivy filesystem (go.sum, package-lock.json, requirements.txt)
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln \
+            --format json --output /src/trivy-fs.json /src/src
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: sca-reports
+          path: trivy-fs.json
+      - name: Gate SCA (falla con Critical/High)
+        if: env.GATE == '1'
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln \
+            --severity CRITICAL,HIGH --ignorefile /src/.trivyignore --exit-code 1 /src/src
+
+  # ---------- 3. Detección de secretos ----------
+  secrets:
+    name: Secretos (Gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Gitleaks (árbol de trabajo)
+        run: |
+          docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" dir /repo \
+            --report-format json --report-path /repo/gitleaks.json --exit-code 0 --redact
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: secrets-gitleaks
+          path: gitleaks.json
+      - name: Gate secretos (cualquier secreto = High)
+        if: env.GATE == '1'
+        run: |
+          n=$(jq 'length' gitleaks.json)
+          echo "Secretos detectados: $n"
+          test "$n" -eq 0
+
+  # ---------- 4. Análisis de IaC ----------
+  iac:
+    name: IaC (Checkov)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Instalar Checkov
+        run: pip install "checkov==3.2.*"
+      # Alcance: lo que realmente se despliega o ejecuta (manifiestos de kubernetes-manifests/,
+      # Dockerfiles de src/, Terraform de terraform/ y los propios workflows de CI)
+      - name: Checkov (informe)
+        run: |
+          checkov -d kubernetes-manifests -d src -d terraform -d .github/workflows \
+            --framework kubernetes dockerfile terraform github_actions \
+            --skip-path kustomize --skip-path helm-chart --skip-path release \
+            -o json --soft-fail > checkov.json
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: iac-checkov
+          path: checkov.json
+      - name: Gate IaC (cualquier check fallido no aceptado = High)
+        if: env.GATE == '1'
+        run: |
+          checkov -d kubernetes-manifests -d src -d terraform -d .github/workflows \
+            --framework kubernetes dockerfile terraform github_actions \
+            --skip-path kustomize --skip-path helm-chart --skip-path release \
+            --config-file devsecops/checkov.yaml --compact
+
+  # ---------- 5. Build, análisis de imagen, SBOM, firma y procedencia ----------
+  build:
+    name: Imagen ${{ matrix.svc }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write       # push a GHCR
+      id-token: write       # OIDC para la firma keyless (Fulcio) y la attestation
+      attestations: write   # provenance SLSA de GitHub
+    strategy:
+      fail-fast: false
+      matrix:
+        svc: [adservice, cartservice, checkoutservice, currencyservice, emailservice, frontend,
+              paymentservice, productcatalogservice, recommendationservice, shippingservice]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Contexto de build
+        id: ctx
+        run: |
+          # cartservice tiene el Dockerfile en src/cartservice/src
+          if [ "${{ matrix.svc }}" = cartservice ]; then d=src/cartservice/src; else d=src/${{ matrix.svc }}; fi
+          echo "dir=$d" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY,,}/${{ matrix.svc }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build y push (por digest)
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ steps.ctx.outputs.dir }}
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.ctx.outputs.image }}:${{ github.sha }}
+      - name: Referencia inmutable
+        id: ref
+        env:
+          IMG: ${{ steps.ctx.outputs.image }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          echo "ref=$IMG@$DIGEST" >> "$GITHUB_OUTPUT"
+          mkdir -p out && echo "${{ matrix.svc }} $IMG@$DIGEST" > out/digest.txt
+      - name: Trivy image (informe)
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        run: |
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD/out:/out" "$TRIVY_IMAGE" \
+            image --scanners vuln --format json --output /out/trivy-image.json "$REF"
+      - name: SBOM de la imagen (CycloneDX)
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        run: |
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD/out:/out" "$TRIVY_IMAGE" \
+            image --format cyclonedx --output /out/sbom.cdx.json "$REF"
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Firma keyless y attestation del SBOM (cosign)
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          # Certificado efímero de Fulcio ligado a la identidad OIDC del workflow; registro en Rekor
+          cosign sign --yes "$REF"
+          cosign attest --yes --type cyclonedx --predicate out/sbom.cdx.json "$REF"
+      - name: Provenance SLSA (GitHub artifact attestations)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.ctx.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: container-${{ matrix.svc }}
+          path: out/
+      - name: Gate contenedor (falla con Critical/High)
+        if: env.GATE == '1'
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        run: |
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD:/src" "$TRIVY_IMAGE" \
+            image --scanners vuln --severity CRITICAL,HIGH --ignorefile /src/.trivyignore --exit-code 1 "$REF"
+
+  # ---------- 6. Despliegue con control de admisión + DAST ----------
+  deploy:
+    name: Despliegue kind + Kyverno + DAST
+    runs-on: ubuntu-24.04
+    needs: build
+    if: always() && !cancelled()
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: container-*
+          path: images
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+      - name: Verificación de la cadena de suministro antes de desplegar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ID: https://github.com/${{ github.repository }}/.github/workflows/devsecops.yml@${{ github.ref }}
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          mkdir -p admission
+          : > admission/supply-chain.txt
+          for f in images/container-*/digest.txt; do
+            read -r svc ref < "$f"
+            sig=fail; sbom=fail; prov=fail
+            cosign verify --certificate-identity "$ID" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>&1 && sig=ok
+            cosign verify-attestation --type cyclonedx --certificate-identity "$ID" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>&1 && sbom=ok
+            gh attestation verify "oci://$ref" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && prov=ok
+            echo "$svc firma=$sig sbom=$sbom provenance=$prov" | tee -a admission/supply-chain.txt
+          done
+      - name: Clúster kind
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          node_image: ${{ env.KIND_NODE }}
+          cluster_name: tfm
+      - name: Instalar Kyverno (chart verificado por digest)
+        run: |
+          curl -sSfLo kyverno.tgz "https://kyverno.github.io/kyverno/kyverno-${KYVERNO_CHART}.tgz"
+          echo "${KYVERNO_CHART_SHA256}  kyverno.tgz" | sha256sum -c -
+          helm install kyverno kyverno.tgz -n kyverno --create-namespace --wait --timeout 8m \
+            --set admissionController.replicas=1
+          # Credenciales para que Kyverno lea firmas y attestations del registro
+          kubectl -n kyverno create secret docker-registry ghcr \
+            --docker-server=ghcr.io --docker-username="${{ github.actor }}" --docker-password="${{ github.token }}"
+      - name: Políticas de admisión (Audit en informe, Enforce con gates)
+        env:
+          ID: https://github.com/${{ github.repository }}/.github/workflows/devsecops.yml@${{ github.ref }}
+        run: |
+          mode=Audit; [ "$GATE" = 1 ] && mode=Enforce
+          repo="${REGISTRY,,}"
+          for p in devsecops/policies/*.yaml; do
+            sed -e "s|__MODE__|$mode|g" -e "s|__REGISTRY__|$repo|g" -e "s|__IDENTITY__|$ID|g" "$p" | kubectl apply -f -
+          done
+          kubectl wait --for=condition=Ready clusterpolicy --all --timeout=180s
+          kubectl get clusterpolicy
+      - name: Desplegar Online Boutique por digest
+        run: |
+          kubectl create namespace boutique
+          kubectl -n boutique create secret docker-registry ghcr \
+            --docker-server=ghcr.io --docker-username="${{ github.actor }}" --docker-password="${{ github.token }}"
+          kubectl -n boutique patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ghcr"}]}'
+          cp -r kubernetes-manifests deploy
+          {
+            echo "images:"
+            for f in images/container-*/digest.txt; do
+              read -r svc ref < "$f"
+              echo "  - name: $svc"
+              echo "    newName: ${ref%@*}"
+              echo "    digest: ${ref#*@}"
+            done
+          } >> deploy/kustomization.yaml
+          kubectl kustomize deploy > boutique.yaml
+          kubectl -n boutique apply -f boutique.yaml 2>&1 | tee admission/apply.txt || true
+          kubectl -n boutique wait --for=condition=Available deployment --all --timeout=600s || {
+            kubectl -n boutique get pods; kubectl -n boutique get events --sort-by=.lastTimestamp | tail -40; }
+          kubectl -n boutique get deploy -o wide | tee admission/deployments.txt
+      - name: Pruebas negativas de admisión (solo con gates)
+        if: env.GATE == '1'
+        run: |
+          # 1) Imagen de nuestro registro sin firmar: debe ser rechazada por verify-image-signatures
+          docker pull -q busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+          unsigned="${REGISTRY,,}/unsigned-test:${{ github.sha }}"
+          docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$unsigned"
+          docker push -q "$unsigned"
+          if kubectl -n boutique run unsigned-test --image="$unsigned" --restart=Never \
+               --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$unsigned"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+               > admission/neg-unsigned.txt 2>&1; then
+            echo "FALLO: imagen sin firmar admitida"; r1=admitted
+          else r1=denied; fi
+          # 2) Pod privilegiado con imagen fijada por digest: debe ser rechazado por Pod Security restricted
+          if kubectl -n boutique run priv-test --restart=Never \
+               --image=busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 \
+               --privileged -- sleep 5 > admission/neg-privileged.txt 2>&1; then
+            echo "FALLO: pod privilegiado admitido"; r2=admitted
+          else r2=denied; fi
+          cat admission/neg-*.txt
+          echo "{\"unsigned_image\": \"$r1\", \"privileged_pod\": \"$r2\"}" | tee admission/negative-tests.json
+          test "$r1" = denied && test "$r2" = denied
+      - name: Recoger PolicyReports
+        if: always()
+        run: |
+          sleep 20
+          kubectl get policyreports -A -o json > admission/policyreports.json || echo '{"items":[]}' > admission/policyreports.json
+          kubectl get clusterpolicy -o yaml > admission/clusterpolicies.yaml || true
+      - name: ZAP Baseline contra el frontend
+        if: always()
+        run: |
+          kubectl -n boutique port-forward svc/frontend 8080:80 >/dev/null 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:8080 >/dev/null && echo UP && break; sleep 3; done
+          curl -sf http://localhost:8080 >/dev/null || { echo "frontend no disponible"; exit 1; }
+          mkdir -p zap && chmod 777 zap
+          docker run --rm --network host -v "$(pwd)/zap:/zap/wrk/:rw" "$ZAP_IMAGE" \
+            zap-baseline.py -t http://localhost:8080 -j -m 3 -J report.json -x report.xml -r report.html -I
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: admission-kyverno
+          path: admission/
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: dast-zap
+          path: zap/
+      - name: Gate DAST (falla si hay alertas High)
+        if: env.GATE == '1'
+        run: |
+          highs=$(jq '[.site[].alerts[] | select((.riskcode|tonumber) >= 3)] | length' zap/report.json)
+          echo "Alertas High de ZAP: $highs"
+          test "$highs" -eq 0
+
+  # ---------- Resumen de métricas ----------
+  report:
+    name: Resumen de métricas
+    runs-on: ubuntu-24.04
+    needs: [sast, sca, secrets, iac, build, deploy]
+    if: always()
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          path: artifacts
+      - name: Normalizar hallazgos por severidad
+        run: |
+          python3 devsecops/metrics.py artifacts metrics
+          {
+            echo "## Resumen de hallazgos DevSecOps"
+            echo ""
+            cat metrics/metrics.md
+            echo ""
+            echo "Modo gate: \`${GATE}\` (0 = informe/Audit, 1 = gates/Enforce)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: metrics
+          path: metrics/

@@ -1,0 +1,23 @@
+# Perfil "restricted" de los Pod Security Standards de Kubernetes aplicado por Kyverno
+# (se autogenera también para Deployments, de modo que el rechazo se produce al aplicar el manifiesto).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: pod-security-restricted
+  annotations:
+    policies.kyverno.io/title: Pod Security Standards (restricted)
+    policies.kyverno.io/category: Pod Security
+spec:
+  background: true
+  rules:
+    - name: restricted
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [boutique]
+      validate:
+        failureAction: __MODE__
+        podSecurity:
+          level: restricted
+          version: latest

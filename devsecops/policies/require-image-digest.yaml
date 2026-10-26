@@ -1,0 +1,29 @@
+# Toda imagen (también las de terceros, p. ej. redis) debe referenciarse por digest: una etiqueta
+# mutable como "redis:alpine" puede cambiar de contenido sin que cambie el manifiesto.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-image-digest
+  annotations:
+    policies.kyverno.io/title: Imágenes inmutables (por digest)
+    policies.kyverno.io/category: Cadena de suministro
+spec:
+  background: true
+  rules:
+    - name: digest
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [boutique]
+      validate:
+        failureAction: __MODE__
+        message: "Las imágenes deben referenciarse por digest (image@sha256:...)."
+        foreach:
+          - list: "request.object.spec.[containers, initContainers, ephemeralContainers][]"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ contains(element.image, '@sha256:') }}"
+                    operator: Equals
+                    value: false

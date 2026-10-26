@@ -1,0 +1,51 @@
+# Solo se admiten imágenes del registro del proyecto firmadas por el workflow DevSecOps de este
+# repositorio (cosign keyless: certificado de Fulcio emitido a la identidad OIDC del workflow y
+# registrado en Rekor) y con un SBOM CycloneDX atestado por esa misma identidad.
+# __MODE__, __REGISTRY__ e __IDENTITY__ se sustituyen en el pipeline.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verificar firma y SBOM de las imágenes propias
+    policies.kyverno.io/category: Cadena de suministro
+spec:
+  webhookTimeoutSeconds: 30
+  background: false
+  rules:
+    - name: cosign-keyless
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [boutique]
+      verifyImages:
+        - imageReferences:
+            - "__REGISTRY__/*"
+          failureAction: __MODE__
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          imageRegistryCredentials:
+            secrets: [ghcr]
+          attestors:
+            - entries:
+                - keyless:
+                    subject: "__IDENTITY__"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://cyclonedx.org/bom
+              attestors:
+                - entries:
+                    - keyless:
+                        subject: "__IDENTITY__"
+                        issuer: "https://token.actions.githubusercontent.com"
+                        rekor:
+                          url: https://rekor.sigstore.dev
+              conditions:
+                - all:
+                    - key: "{{ bomFormat }}"
+                      operator: Equals
+                      value: CycloneDX

@@ -1,0 +1,3 @@
+# Riesgos aceptados de forma temporal en el security gate (Trivy fs e image).
+# Formato: <CVE> exp:<AAAA-MM-DD>  -> la excepción caduca y el gate vuelve a fallar.
+# Cada entrada debe ir precedida de su justificación (TFM, apartado de triaje).

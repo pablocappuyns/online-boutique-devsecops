@@ -1,0 +1,3 @@
+# Configuración del gate IaC (Checkov). Los checks aceptados como riesgo, con su justificación,
+# se añaden en skip-check tras el triaje; en la línea base no hay ninguno.
+compact: true
