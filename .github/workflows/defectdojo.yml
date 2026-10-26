@@ -1,0 +1,80 @@
+name: DefectDojo (gestión centralizada)
+
+# Despliega DefectDojo efímero en el runner, importa los informes de un run del
+# pipeline DevSecOps, aplica el triaje y exporta métricas (OE5) y capturas.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID del run de 'DevSecOps Pipeline' cuyos informes se importan"
+        required: true
+      label:
+        description: "Nombre del engagement (p. ej. baseline / remediado)"
+        default: baseline
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  defectdojo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DD_URL: http://localhost:8080
+      DD_USER: admin
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Descargar informes del run indicado
+        # Entradas pasadas por variables de entorno, nunca interpoladas en el script (inyección de comandos)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "run_id no válido"; exit 1; }
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -D artifacts
+      - name: Levantar DefectDojo (docker compose)
+        env:
+          DD_TAG: "3.4.101"
+          DD_COMMIT: 10453d6c62d68eee6d6b0ecc0acde5d61d1dd02d
+          DD_IMAGE_REGISTRY: docker.io
+          DJANGO_VERSION: 3.4.101@sha256:68668ec60f3da0c1da98d7c7245afda12cacf46e302263251620fd823c65c8c9
+          NGINX_VERSION: 3.4.101@sha256:dfc78638ba09530ebf85bbf6a89465496f4e71510104a4acf8ee8cd29d6f1ac8
+        run: |
+          # Versión fijada (la de las ejecuciones de referencia) y verificada por commit; imágenes por digest
+          git clone --depth 1 --branch "$DD_TAG" https://github.com/DefectDojo/django-DefectDojo dd
+          cd dd
+          test "$(git rev-parse HEAD)" = "$DD_COMMIT"
+          # Un reintento: al crear en paralelo los subdirectorios del volumen media, Docker falla de forma
+          # intermitente con "file exists"
+          docker compose up -d || { sleep 5; docker compose up -d; }
+          for i in $(seq 1 90); do
+            pw=$(docker compose logs initializer 2>/dev/null | grep -oP 'Admin password: \K\S+' || true)
+            [ -n "$pw" ] && break
+            sleep 10
+          done
+          test -n "$pw"
+          echo "::add-mask::$pw"
+          echo "DD_PASS=$pw" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - name: Importar informes y extraer métricas
+        env:
+          LABEL: ${{ inputs.label }}
+        run: |
+          [[ "$LABEL" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "label no válido"; exit 1; }
+          pip install requests playwright
+          python devsecops/defectdojo.py artifacts "$LABEL" dd-out
+      - name: Capturas
+        continue-on-error: true
+        run: |
+          python -m playwright install --with-deps chromium
+          eng=$(jq -r '.engagement_id' dd-out/dd_metrics.json)
+          python devsecops/dd_screens.py "$eng" dd-out
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: defectdojo-${{ github.run_id }}
+          path: dd-out/
