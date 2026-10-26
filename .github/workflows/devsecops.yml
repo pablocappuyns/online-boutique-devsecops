@@ -176,6 +176,9 @@ jobs:
       - name: Build y push (por digest)
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          # Sin el artefacto .dockerbuild del resumen de build: no es un zip y rompe download-artifact
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: ${{ steps.ctx.outputs.dir }}
           push: true
@@ -266,12 +269,12 @@ jobs:
           : > admission/supply-chain.txt
           for f in images/container-*/digest.txt; do
             read -r svc ref < "$f"
-            sig=fail; sbom=fail; prov=fail
+            sig=fail; sbom=fail; prov=fail; log="admission/verify-$svc.log"
             cosign verify --certificate-identity "$ID" \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>&1 && sig=ok
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>>"$log" && sig=ok
             cosign verify-attestation --type cyclonedx --certificate-identity "$ID" \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>&1 && sbom=ok
-            gh attestation verify "oci://$ref" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && prov=ok
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$ref" >/dev/null 2>>"$log" && sbom=ok
+            gh attestation verify "oci://$ref" -R "$GITHUB_REPOSITORY" >/dev/null 2>>"$log" && prov=ok
             echo "$svc firma=$sig sbom=$sbom provenance=$prov" | tee -a admission/supply-chain.txt
           done
       - name: Clúster kind

@@ -23,7 +23,8 @@ spec:
         - imageReferences:
             - "__REGISTRY__/*"
           failureAction: __MODE__
-          mutateDigest: true
+          # Las imágenes ya se despliegan por digest; además Kyverno no admite mutar en modo Audit
+          mutateDigest: false
           verifyDigest: true
           required: true
           imageRegistryCredentials:
