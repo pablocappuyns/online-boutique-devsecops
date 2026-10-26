@@ -46,5 +46,5 @@ COPY . .
 EXPOSE 7000
 
 # Usuario sin privilegios también en la imagen (Kubernetes ya fuerza runAsNonRoot)
-USER 1000:1000
+USER 10001:10001
 ENTRYPOINT [ "node", "server.js" ]

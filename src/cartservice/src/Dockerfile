@@ -40,5 +40,5 @@ COPY --from=builder /cartservice .
 EXPOSE 7070
 ENV DOTNET_EnableDiagnostics=0 \
     ASPNETCORE_HTTP_PORTS=7070
-USER 1000
+USER 10001:10001
 ENTRYPOINT ["/app/cartservice"]

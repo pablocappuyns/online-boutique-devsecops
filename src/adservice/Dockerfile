@@ -44,5 +44,5 @@ COPY --from=builder /app .
 
 EXPOSE 9555
 # Usuario sin privilegios también en la imagen (Kubernetes ya fuerza runAsNonRoot)
-USER 1000:1000
+USER 10001:10001
 ENTRYPOINT ["/app/build/install/hipstershop/bin/AdService"]

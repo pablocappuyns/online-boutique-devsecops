@@ -16,6 +16,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
+  namespace: boutique
+  annotations:
+    checkov.io/skip1: CKV_K8S_43=La imagen se fija por digest al desplegar (kustomize images en el pipeline)
+    checkov.io/skip2: CKV_K8S_14=El manifiesto usa el nombre logico; el pipeline lo sustituye por imagen@digest
   labels:
     app: frontend
 spec:
@@ -29,14 +33,15 @@ spec:
       annotations:
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
     spec:
+      automountServiceAccountToken: false
       serviceAccountName: frontend
       securityContext:
-        fsGroup: 1000
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
-        runAsGroup: 1000
+        runAsGroup: 10001
         runAsNonRoot: true
-        runAsUser: 1000
+        runAsUser: 10001
       containers:
         - name: server
           securityContext:
@@ -111,6 +116,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend
+  namespace: boutique
   labels:
     app: frontend
 spec:
@@ -126,6 +132,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend-external
+  namespace: boutique
   labels:
     app: frontend
 spec:
@@ -141,3 +148,4 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: frontend
+  namespace: boutique
