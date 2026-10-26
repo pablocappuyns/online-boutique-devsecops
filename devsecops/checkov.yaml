@@ -1,3 +1,12 @@
-# Configuración del gate IaC (Checkov). Los checks aceptados como riesgo, con su justificación,
-# se añaden en skip-check tras el triaje; en la línea base no hay ninguno.
+# Configuración del gate IaC (Checkov). Riesgos aceptados tras el triaje, con su justificación.
+# Los checks omitidos por recurso se declaran en el propio manifiesto (anotaciones checkov.io/skip).
 compact: true
+skip-check:
+  # HEALTHCHECK de Docker: Kubernetes no lo usa; la salud se comprueba con las sondas liveness y
+  # readiness declaradas en cada Deployment.
+  - CKV_DOCKER_2
+skip-path:
+  # Terraform de referencia para GKE: no se despliega en el laboratorio (clúster kind efímero). Sus
+  # hallazgos quedan registrados en el informe y en el backlog; Binary Authorization (CKV_GCP_66) es
+  # el equivalente gestionado del control de admisión con Kyverno implementado en el pipeline.
+  - terraform

@@ -80,13 +80,16 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	// Riesgo aceptado (TFM, triaje SAST): gRPC sin TLS dentro del clúster, igual que el resto de
+	// servicios de Online Boutique. Control compensatorio: NetworkPolicies que solo admiten tráfico
+	// de checkoutservice y frontend; el cifrado mTLS se delega en una malla de servicios (trabajo futuro).
 	var srv *grpc.Server
 	if os.Getenv("DISABLE_STATS") == "" {
 		log.Info("Stats enabled, but temporarily unavailable")
-		srv = grpc.NewServer()
+		srv = grpc.NewServer() // nosemgrep
 	} else {
 		log.Info("Stats disabled.")
-		srv = grpc.NewServer()
+		srv = grpc.NewServer() // nosemgrep
 	}
 	svc := &server{}
 	pb.RegisterShippingServiceServer(srv, svc)
