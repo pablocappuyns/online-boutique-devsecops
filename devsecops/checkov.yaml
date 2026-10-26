@@ -5,10 +5,6 @@ skip-check:
   # HEALTHCHECK de Docker: Kubernetes no lo usa; la salud se comprueba con las sondas liveness y
   # readiness declaradas en cada Deployment.
   - CKV_DOCKER_2
-skip-path:
-  # Terraform de referencia para GKE: no se despliega en el laboratorio (clúster kind efímero). Sus
-  # hallazgos quedan registrados en el informe y en el backlog; Binary Authorization (CKV_GCP_66) es
-  # el equivalente gestionado del control de admisión con Kyverno implementado en el pipeline.
-  - terraform
-  # Imagen de depuración de cartservice (skaffold debug): no se construye ni se despliega
-  - Dockerfile.debug
+# El Terraform de referencia para GKE no se pasa al gate (ver devsecops.yml): no se despliega en el
+# laboratorio; sus hallazgos siguen en el informe y en el backlog (CKV_GCP_66, Binary Authorization, es
+# el equivalente gestionado del control de admisión con Kyverno implementado en el pipeline).
