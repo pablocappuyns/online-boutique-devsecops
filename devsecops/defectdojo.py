@@ -29,7 +29,7 @@ REPORTS = [
     ("sast-semgrep/semgrep.json", "Semgrep JSON Report", "Semgrep (SAST)"),
     ("sca-reports/trivy-fs.json", "Trivy Scan", "Trivy fs (SCA)"),
     ("secrets-gitleaks/gitleaks.json", "Gitleaks Scan", "Gitleaks (secretos)"),
-    ("iac-checkov/checkov.json", "Checkov Scan", "Checkov (IaC)"),
+    ("iac-checkov/checkov-merged.json", "Checkov Scan", "Checkov (IaC)"),
     ("dast-zap/report.xml", "ZAP Scan", "OWASP ZAP (DAST)"),
 ]
 
@@ -134,6 +134,19 @@ def main():
     r = dd.s.patch(f"{URL}/api/v2/system_settings/1/", json={"enable_deduplication": True})
     print(f"[config] deduplicación: HTTP {r.status_code}")
 
+    # Checkov con varios -d escribe documentos JSON concatenados: el parser de DefectDojo espera
+    # un único documento (objeto o lista)
+    ck = art / "iac-checkov" / "checkov.json"
+    if ck.exists():
+        dec, txt, pos, docs = json.JSONDecoder(), ck.read_text(encoding="utf-8"), 0, []
+        while pos < len(txt):
+            while pos < len(txt) and txt[pos].isspace():
+                pos += 1
+            if pos >= len(txt):
+                break
+            obj, pos = dec.raw_decode(txt, pos)
+            docs += obj if isinstance(obj, list) else [obj]
+        (art / "iac-checkov" / "checkov-merged.json").write_text(json.dumps(docs), encoding="utf-8")
     reports = list(REPORTS)
     for d in sorted(art.glob("container-*")):
         svc = d.name.removeprefix("container-")
