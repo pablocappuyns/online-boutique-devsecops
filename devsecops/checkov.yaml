@@ -10,3 +10,5 @@ skip-path:
   # hallazgos quedan registrados en el informe y en el backlog; Binary Authorization (CKV_GCP_66) es
   # el equivalente gestionado del control de admisión con Kyverno implementado en el pipeline.
   - terraform
+  # Imagen de depuración de cartservice (skaffold debug): no se construye ni se despliega
+  - Dockerfile.debug

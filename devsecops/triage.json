@@ -1,29 +1,60 @@
 [
  {
-  "match": ["CKV_K8S_43", "Deployment.default."],
-  "unless": ["redis-cart"],
+  "match": [
+   "CKV_K8S_43",
+   "Deployment.default."
+  ],
+  "unless": [
+   "redis-cart"
+  ],
   "reason": "Imagen sin digest en el manifiesto: el pipeline la sustituye por imagen@digest al desplegar (kustomize images)",
   "category": "fp"
  },
  {
-  "match": ["CKV_K8S_14", "Deployment.default."],
-  "unless": ["redis-cart"],
+  "match": [
+   "CKV_K8S_14",
+   "Deployment.default."
+  ],
+  "unless": [
+   "redis-cart"
+  ],
   "reason": "Imagen sin etiqueta en el manifiesto: es el nombre lógico que el pipeline sustituye por imagen@digest",
   "category": "fp"
  },
  {
-  "match": ["CKV_DOCKER_2"],
+  "match": [
+   "CKV_DOCKER_2"
+  ],
   "reason": "HEALTHCHECK de Docker: Kubernetes no lo usa; la salud se comprueba con sondas liveness/readiness",
   "category": "fp"
  },
  {
-  "match": ["CKV_GCP_"],
+  "match": [
+   "CKV_GCP_"
+  ],
   "reason": "Terraform de referencia para GKE: no se despliega en el laboratorio",
   "category": "alcance"
  },
  {
-  "match": ["CKV_TF_1"],
+  "match": [
+   "CKV_TF_1"
+  ],
   "reason": "Terraform de referencia para GKE: no se despliega en el laboratorio",
   "category": "alcance"
+ },
+ {
+  "match": [
+   "Dockerfile.debug"
+  ],
+  "reason": "Imagen de depuración de cartservice: no se construye ni se despliega",
+  "category": "alcance"
+ },
+ {
+  "match": [
+   "CKV_GHA_7",
+   "defectdojo.yml"
+  ],
+  "reason": "Flujo de importación en DefectDojo: no construye artefactos; sus entradas se validan con una expresión regular",
+  "category": "fp"
  }
 ]

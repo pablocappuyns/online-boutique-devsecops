@@ -3,6 +3,7 @@ name: DefectDojo (gestión centralizada)
 # Despliega DefectDojo efímero en el runner, importa los informes de un run del
 # pipeline DevSecOps, aplica el triaje y exporta métricas (OE5) y capturas.
 
+# checkov:skip=CKV_GHA_7:No construye artefactos; solo importa informes de otra ejecución. Las entradas se validan con una expresión regular
 on:
   workflow_dispatch:
     inputs:
