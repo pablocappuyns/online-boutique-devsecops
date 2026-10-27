@@ -4,7 +4,8 @@ name: DevSecOps Pipeline
 # Node.js, Python y Java desplegados en Kubernetes).
 #
 # Fases:
-#   1. Controles sobre el código: SAST, SCA, secretos e IaC (manifiestos, Dockerfiles, Terraform, workflows).
+#   1. Controles sobre el código: SAST (Semgrep y SonarQube), SCA (Trivy y OWASP Dependency-Check),
+#      secretos e IaC (manifiestos, Dockerfiles, Terraform, workflows).
 #   2. Build por servicio: imagen -> análisis Trivy -> SBOM CycloneDX -> push a GHCR por digest ->
 #      firma keyless (cosign + OIDC de GitHub) -> attestation del SBOM -> provenance SLSA (GitHub).
 #   3. Despliegue efímero en kind con Kyverno como control de admisión (verifica firma y Pod Security
@@ -95,6 +96,123 @@ jobs:
           docker run --rm -v "$PWD:/src" "$TRIVY_IMAGE" fs --scanners vuln $TRIVY_SCOPE \
             --severity CRITICAL,HIGH --ignorefile /src/.trivyignore --exit-code 1 /src/src
 
+  # ---------- 1b. SAST con SonarQube (servidor efímero en el runner) ----------
+  sast-sonar:
+    name: SAST (SonarQube)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      sonarqube:
+        image: sonarqube:26.9.0.129388-community@sha256:c0f1160bccfa435db4168c2d7df69af3c3ea7bfeb87395613014048fb33a68c1
+        ports: ["9000:9000"]
+        env:
+          # Instancia de un solo uso: sin las comprobaciones de arranque de Elasticsearch para producción
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    env:
+      SONAR_HOST: http://localhost:9000
+      SCANNER_IMAGE: sonarsource/sonar-scanner-cli:12.2.0.4256_8.1.0@sha256:a3f4215076706c95a17a68c19322ee916e40a3acd081a8c1a1e839e0194afa57
+      JDK_IMAGE: eclipse-temurin:25.0.4_7-jdk-noble@sha256:534968c051301957beae735e7ba1db54d99ddecf08746d3b9d4f318cc132dbc3
+      # Mismo alcance que Semgrep; cartservice (C#) se analiza aparte con el Scanner for .NET
+      SONAR_EXCLUSIONS: src/loadgenerator/**,src/shoppingassistantservice/**,src/cartservice/**,**/node_modules/**
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Compilar adservice (el analizador Java necesita el bytecode)
+        run: docker run --rm -v "$PWD/src/adservice:/app" -w /app "$JDK_IMAGE" sh -c "chmod +x gradlew && ./gradlew --no-daemon -q installDist"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.402
+      - name: Preparar SonarQube (credencial y token de un solo uso)
+        run: |
+          python3 devsecops/sonar.py wait-up
+          # La instancia arranca con admin/admin: se sustituye por una contraseña aleatoria y se crea un token
+          pw="$(openssl rand -hex 16)Aa1!"
+          echo "::add-mask::$pw"
+          curl -sSf -u admin:admin -X POST "$SONAR_HOST/api/users/change_password" \
+            --data-urlencode login=admin --data-urlencode previousPassword=admin --data-urlencode "password=$pw"
+          tok=$(curl -sSf -u "admin:$pw" -X POST "$SONAR_HOST/api/user_tokens/generate" \
+            --data-urlencode name=ci --data-urlencode type=USER_TOKEN | jq -r .token)
+          echo "::add-mask::$tok"
+          echo "SONAR_TOKEN=$tok" >> "$GITHUB_ENV"
+      - name: SonarQube (Go, Node.js, Python, Java)
+        run: |
+          docker run --rm --network host -e SONAR_HOST_URL="$SONAR_HOST" -e SONAR_TOKEN \
+            -v "$PWD:/usr/src" "$SCANNER_IMAGE" \
+            -Dsonar.projectKey=online-boutique -Dsonar.sources=src -Dsonar.exclusions="$SONAR_EXCLUSIONS" \
+            -Dsonar.java.binaries=src/adservice/build/classes -Dsonar.scm.disabled=true \
+            -Dsonar.working.directory=/tmp/scannerwork
+      - name: SonarQube (C#, cartservice)
+        run: |
+          dotnet tool install --tool-path "$RUNNER_TEMP/sonar" dotnet-sonarscanner --version 11.3.0
+          s="$RUNNER_TEMP/sonar/dotnet-sonarscanner"
+          "$s" begin /k:online-boutique-cartservice /d:sonar.host.url="$SONAR_HOST" /d:sonar.token="$SONAR_TOKEN" /d:sonar.scm.disabled=true
+          dotnet build src/cartservice/src/cartservice.csproj -c Release
+          "$s" end /d:sonar.token="$SONAR_TOKEN"
+      - name: Exportar issues de seguridad y hotspots
+        run: |
+          python3 devsecops/sonar.py wait-ce online-boutique online-boutique-cartservice
+          mkdir -p sonar
+          python3 devsecops/sonar.py export sonar/sonar.json online-boutique online-boutique-cartservice
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: sast-sonarqube
+          path: sonar/
+      - name: Gate SonarQube (falla con Critical/High no aceptados)
+        if: env.GATE == '1'
+        run: |
+          mkdir -p a && cp -r sonar a/sast-sonarqube
+          python3 devsecops/gate.py sonar a
+
+  # ---------- 2b. SCA con OWASP Dependency-Check ----------
+  sca-depcheck:
+    name: SCA (Dependency-Check)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      DC_VERSION: 13.0.0
+      DC_SHA256: 44d920d1ec03e948df862a253f0912782a31b9beee8a7c8895b9cb95760176ed
+      JDK_IMAGE: eclipse-temurin:25.0.4_7-jdk-noble@sha256:534968c051301957beae735e7ba1db54d99ddecf08746d3b9d4f318cc132dbc3
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # Gradle no declara un fichero de bloqueo: se analizan los JAR resueltos
+      - name: Compilar adservice
+        run: docker run --rm -v "$PWD/src/adservice:/app" -w /app "$JDK_IMAGE" sh -c "chmod +x gradlew && ./gradlew --no-daemon -q installDist"
+      - name: Instalar Dependency-Check (verificado por SHA-256)
+        run: |
+          curl -sSfLo dc.zip "https://github.com/dependency-check/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip"
+          echo "${DC_SHA256}  dc.zip" | sha256sum -c -
+          unzip -q dc.zip -d "$RUNNER_TEMP"
+      # Base de datos local de la NVD: se reutiliza entre ejecuciones y se actualiza en cada una
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.dc-data
+          key: dc-nvd-${{ github.run_id }}
+          restore-keys: dc-nvd-
+      - name: Dependency-Check (informe)
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          # La clave va en un fichero de propiedades, no en la línea de órdenes
+          umask 077
+          printf 'nvd.api.key=%s\n' "$NVD_API_KEY" > "$RUNNER_TEMP/dc.properties"
+          "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --project online-boutique \
+            --scan src --exclude "**/loadgenerator/**" --exclude "**/shoppingassistantservice/**" \
+            --exclude "**/node_modules/**" --exclude "**/.gradle/**" \
+            --propertyfile "$RUNNER_TEMP/dc.properties" --data "$HOME/.dc-data" \
+            --enableExperimental --disableOssIndex \
+            --format JSON --format XML --format HTML --out dc
+          rm -f "$RUNNER_TEMP/dc.properties"
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: always()
+        with:
+          name: sca-depcheck
+          path: dc/
+      - name: Gate Dependency-Check (falla con Critical/High no aceptados)
+        if: env.GATE == '1'
+        run: |
+          mkdir -p a && cp -r dc a/sca-depcheck
+          python3 devsecops/gate.py depcheck a
+
   # ---------- 3. Detección de secretos ----------
   secrets:
     name: Secretos (Gitleaks)
@@ -127,7 +245,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Instalar Checkov
-        run: pip install "checkov==3.2.*"
+        run: pip install "checkov==3.2.533"
       # Alcance: lo que realmente se despliega o ejecuta (manifiestos de kubernetes-manifests/,
       # Dockerfiles de src/, Terraform de terraform/ y los propios workflows de CI)
       - name: Checkov (informe)
@@ -403,7 +521,7 @@ jobs:
   report:
     name: Resumen de métricas
     runs-on: ubuntu-24.04
-    needs: [sast, sca, secrets, iac, build, deploy]
+    needs: [sast, sast-sonar, sca, sca-depcheck, secrets, iac, build, deploy]
     if: always()
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
