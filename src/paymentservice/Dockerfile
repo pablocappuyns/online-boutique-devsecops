@@ -41,7 +41,9 @@ WORKDIR /usr/src/app
 
 COPY --from=builder /usr/src/app/node_modules ./node_modules
 
-COPY . .
+# Solo los ficheros que necesita el servicio en ejecución (no todo el contexto de build)
+COPY package.json index.js server.js charge.js logger.js ./
+COPY proto ./proto
 
 EXPOSE 50051
 

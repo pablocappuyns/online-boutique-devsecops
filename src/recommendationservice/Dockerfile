@@ -49,8 +49,8 @@ COPY --from=builder /usr/local/lib/python3.14/ /usr/local/lib/python3.14/
 # pip y setuptools no se usan en ejecución: se retiran del runtime
 RUN python -m pip uninstall -y pip setuptools
 
-# Add the application
-COPY . .
+# Solo los ficheros que necesita el servicio en ejecución (no todo el contexto de build)
+COPY recommendation_server.py logger.py demo_pb2.py demo_pb2_grpc.py ./
 
 # set listen port
 ENV PORT="8080"
