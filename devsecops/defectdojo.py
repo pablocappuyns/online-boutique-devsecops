@@ -7,7 +7,7 @@ Variables de entorno: DD_URL, DD_USER, DD_PASS.
 - Crea (si no existe) el producto "Online Boutique" y un engagement por etiqueta
   (p. ej. "baseline" o "remediado").
 - Importa cada informe con su parser nativo de DefectDojo (un test por imagen) y las
-  violaciones de Kyverno como Generic Findings Import.
+  violaciones de Kyverno y los issues de seguridad de SonarQube como Generic Findings Import.
 - Aplica el triaje manual de devsecops/triage.json (falsos positivos documentados).
 - Exporta dd_metrics.json con conteos por severidad, herramienta, CWE y
   categoría OWASP Top 10:2021, además de duplicados y falsos positivos.
@@ -31,6 +31,7 @@ REPORTS = [
     ("secrets-gitleaks/gitleaks.json", "Gitleaks Scan", "Gitleaks (secretos)"),
     ("iac-checkov/checkov-merged.json", "Checkov Scan", "Checkov (IaC)"),
     ("dast-zap/report.xml", "ZAP Scan", "OWASP ZAP (DAST)"),
+    ("sca-depcheck/dependency-check-report.xml", "Dependency Check Scan", "OWASP Dependency-Check (SCA)"),
 ]
 
 # CWE -> OWASP Top 10:2021 (lista oficial de CWE por categoría, subconjunto relevante)
@@ -88,6 +89,28 @@ def kyverno_generic(art):
                         "description": r.get("message") or "", "component_name": wl,
                         "cwe": 494 if integ else 250, "unique_id_from_tool": "|".join(key),
                         "mitigation": "Ajustar el manifiesto o la imagen a la política de admisión"})
+    return {"findings": out}
+
+
+def sonar_generic(art):
+    """Issues de seguridad de SonarQube -> Generic Findings Import (CWE según el estándar de la regla)."""
+    p = art / "sast-sonarqube" / "sonar.json"
+    if not p.exists():
+        return None
+    data = json.loads(p.read_text(encoding="utf-8"))
+    sev = {"BLOCKER": "Critical", "HIGH": "High", "MEDIUM": "Medium", "LOW": "Low", "INFO": "Info"}
+    out = []
+    for i in data.get("issues", []):
+        imp = [x for x in i.get("impacts", []) if x.get("softwareQuality") == "SECURITY"]
+        cwes = [int(s.split(":")[1]) for s in data.get("rules", {}).get(i.get("rule"), [])
+                if s.startswith("cwe:") and s.split(":")[1].isdigit()]
+        f = {"title": f"{i.get('rule')}: {(i.get('message') or '')[:120]}",
+             "severity": sev.get(imp[0].get("severity") if imp else "", "Info"),
+             "description": i.get("message") or "", "file_path": (i.get("component") or "").split(":", 1)[-1],
+             "line": i.get("line"), "vuln_id_from_tool": i.get("rule"), "unique_id_from_tool": i.get("key")}
+        if cwes:
+            f["cwe"] = cwes[0]
+        out.append(f)
     return {"findings": out}
 
 
@@ -155,6 +178,10 @@ def main():
     if gen is not None:
         (art / "kyverno-generic.json").write_text(json.dumps(gen, ensure_ascii=False), encoding="utf-8")
         reports.append(("kyverno-generic.json", "Generic Findings Import", "Kyverno (admisión)"))
+    sq = sonar_generic(art)
+    if sq is not None:
+        (art / "sonar-generic.json").write_text(json.dumps(sq, ensure_ascii=False), encoding="utf-8")
+        reports.append(("sonar-generic.json", "Generic Findings Import", "SonarQube (SAST)"))
     imported = []
     for rel, scan_type, title in reports:
         f = art / rel

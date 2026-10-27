@@ -78,6 +78,13 @@ def export(dest, projects):
                                  impactSoftwareQualities="SECURITY", resolved="false")]
         data["hotspots"] += [dict(h, project=p) for h in
                              paged("/api/hotspots/search", "hotspots", project=p, status="TO_REVIEW")]
+    # Estándares de cada regla (cwe:NNN, owaspTop10-2021:aN) para el mapeo en DefectDojo
+    data["rules"] = {}
+    for key in sorted({i["rule"] for i in data["issues"]} | {h.get("ruleKey") for h in data["hotspots"]} - {None}):
+        try:
+            data["rules"][key] = get("/api/rules/show", key=key).get("rule", {}).get("securityStandards", [])
+        except (urllib.error.URLError, OSError, ValueError):
+            data["rules"][key] = []
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1, ensure_ascii=False)
     print(f"issues de seguridad: {len(data['issues'])}, hotspots: {len(data['hotspots'])}")
