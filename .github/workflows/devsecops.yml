@@ -168,7 +168,8 @@ jobs:
   sca-depcheck:
     name: SCA (Dependency-Check)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # La primera descarga completa de la NVD (~415 000 CVE) tarda unas 2,5 h; después es incremental
+    timeout-minutes: 300
     env:
       DC_VERSION: 13.0.0
       DC_SHA256: 44d920d1ec03e948df862a253f0912782a31b9beee8a7c8895b9cb95760176ed
@@ -183,27 +184,37 @@ jobs:
           curl -sSfLo dc.zip "https://github.com/dependency-check/DependencyCheck/releases/download/v${DC_VERSION}/dependency-check-${DC_VERSION}-release.zip"
           echo "${DC_SHA256}  dc.zip" | sha256sum -c -
           unzip -q dc.zip -d "$RUNNER_TEMP"
-      # Base de datos local de la NVD: se reutiliza entre ejecuciones y se actualiza en cada una
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      # Base de datos local de la NVD: se restaura de la caché, se actualiza y se guarda antes del
+      # análisis, de modo que un fallo posterior no obliga a repetir la descarga. Las cachés creadas
+      # en main son visibles desde cualquier rama.
+      - uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
           path: ~/.dc-data
           key: dc-nvd-${{ github.run_id }}
           restore-keys: dc-nvd-
-      - name: Dependency-Check (informe)
+      - name: Actualizar la base de datos de la NVD
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           # La clave va en un fichero de propiedades, no en la línea de órdenes
           test -n "$NVD_API_KEY" || { echo "Falta el secreto NVD_API_KEY"; exit 1; }
-          mkdir -p dc
           ( umask 077; printf 'nvd.api.key=%s\n' "$NVD_API_KEY" > "$RUNNER_TEMP/dc.properties" )
+          "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --updateonly \
+            --propertyfile "$RUNNER_TEMP/dc.properties" --data "$HOME/.dc-data"
+          rm -f "$RUNNER_TEMP/dc.properties"
+      - uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.dc-data
+          key: dc-nvd-${{ github.run_id }}
+      - name: Dependency-Check (informe)
+        run: |
+          mkdir -p dc
           "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --project online-boutique \
             --scan src --exclude "**/loadgenerator/**" --exclude "**/shoppingassistantservice/**" \
             --exclude "**/node_modules/**" --exclude "**/.gradle/**" \
-            --propertyfile "$RUNNER_TEMP/dc.properties" --data "$HOME/.dc-data" \
+            --data "$HOME/.dc-data" --noupdate \
             --enableExperimental --disableOssIndex \
             --format JSON --format XML --format HTML --out dc
-          rm -f "$RUNNER_TEMP/dc.properties"
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
         with:
