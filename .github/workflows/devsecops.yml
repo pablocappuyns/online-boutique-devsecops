@@ -140,11 +140,12 @@ jobs:
             -Dsonar.projectKey=online-boutique -Dsonar.sources=src -Dsonar.exclusions="$SONAR_EXCLUSIONS" \
             -Dsonar.java.binaries=src/adservice/build/classes -Dsonar.scm.disabled=true \
             -Dsonar.working.directory=/tmp/scannerwork
+      # El Scanner for .NET analiza también los ficheros no .NET de la raíz: se limita a cartservice
       - name: SonarQube (C#, cartservice)
         run: |
           dotnet tool install --tool-path "$RUNNER_TEMP/sonar" dotnet-sonarscanner --version 11.3.0
           s="$RUNNER_TEMP/sonar/dotnet-sonarscanner"
-          "$s" begin /k:online-boutique-cartservice /d:sonar.host.url="$SONAR_HOST" /d:sonar.token="$SONAR_TOKEN" /d:sonar.scm.disabled=true
+          "$s" begin /k:online-boutique-cartservice /d:sonar.host.url="$SONAR_HOST" /d:sonar.token="$SONAR_TOKEN" /d:sonar.scm.disabled=true /d:sonar.inclusions="src/cartservice/**"
           dotnet build src/cartservice/src/cartservice.csproj -c Release
           "$s" end /d:sonar.token="$SONAR_TOKEN"
       - name: Exportar issues de seguridad y hotspots
@@ -193,8 +194,9 @@ jobs:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
           # La clave va en un fichero de propiedades, no en la línea de órdenes
-          umask 077
-          printf 'nvd.api.key=%s\n' "$NVD_API_KEY" > "$RUNNER_TEMP/dc.properties"
+          test -n "$NVD_API_KEY" || { echo "Falta el secreto NVD_API_KEY"; exit 1; }
+          mkdir -p dc
+          ( umask 077; printf 'nvd.api.key=%s\n' "$NVD_API_KEY" > "$RUNNER_TEMP/dc.properties" )
           "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --project online-boutique \
             --scan src --exclude "**/loadgenerator/**" --exclude "**/shoppingassistantservice/**" \
             --exclude "**/node_modules/**" --exclude "**/.gradle/**" \
