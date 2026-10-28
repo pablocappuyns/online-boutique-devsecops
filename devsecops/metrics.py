@@ -115,17 +115,48 @@ def sonar(d):
     return c, items
 
 
+def dc_note_by_path(path):
+    """Justificación de la regla de dc-suppressions.xml cuyo filePath coincide con la ruta.
+
+    Se usa cuando Dependency-Check agrupa la dependencia suprimida con otra y el informe pierde la nota.
+    """
+    import re
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.parse(Path(__file__).with_name("dc-suppressions.xml")).getroot()
+    except (OSError, ET.ParseError):
+        return None
+    ns = {"s": root.tag.split("}")[0].strip("{")}
+    for s in root.findall("s:suppress", ns):
+        fp = s.find("s:filePath", ns)
+        if fp is not None and fp.get("regex") == "true" and re.match(fp.text or "", path or ""):
+            return (s.findtext("s:notes", "", ns) or "").strip()
+    return None
+
+
 def depcheck(d):
     data = load(d / "sca-depcheck" / "dependency-check-report.json")
     if data is None:
         return None, []
     c, items, seen = Counter(), [], set()
+    # Análisis con devsecops/dc-suppressions.xml: un hallazgo del análisis completo que ya no aparece
+    # activo en él (en su dependencia o agrupado en otra) es un falso positivo suprimido
+    supp = load(d / "sca-depcheck" / "suppressed" / "dependency-check-report.json")
+    active, notes, cpe_notes = set(), {}, {}
+    for dep in (supp or {}).get("dependencies", []) or []:
+        paths = [dep.get("filePath")] + [r.get("filePath") for r in dep.get("relatedDependencies", []) or []]
+        for v in dep.get("vulnerabilities", []) or []:
+            active.update((v.get("name"), p) for p in paths)
+        for v in dep.get("suppressedVulnerabilities", []) or []:
+            notes[(v.get("name"), dep.get("filePath"))] = (v.get("notes") or "").strip()
+        # Justificación de los CPE suprimidos (vale también para las dependencias agrupadas)
+        n = "; ".join(dict.fromkeys((i.get("notes") or "").strip()
+                                    for i in dep.get("suppressedVulnerabilityIds", []) or [] if i.get("notes")))
+        for p in paths:
+            if n:
+                cpe_notes[p] = n
     for dep in data.get("dependencies", []) or []:
-        # Los suprimidos (devsecops/dc-suppressions.xml) se cuentan como salida de la herramienta y
-        # se marcan para que el triaje los clasifique como falsos positivos
-        vulns = [(v, False) for v in dep.get("vulnerabilities", []) or []] + \
-                [(v, True) for v in dep.get("suppressedVulnerabilities", []) or []]
-        for v, suppressed in vulns:
+        for v in dep.get("vulnerabilities", []) or []:
             # Una misma CVE en el mismo componente (fichero de dependencia) se cuenta una vez
             key = (v.get("name"), dep.get("filePath"))
             if key in seen:
@@ -135,8 +166,10 @@ def depcheck(d):
             c[sev] += 1
             it = {"id": v.get("name"), "pkg": dep.get("fileName"), "sev": sev,
                   "file": (dep.get("filePath") or "").split("/src/", 1)[-1], "cwe": v.get("cwes")}
-            if suppressed:
-                it["suppressed"] = "Suprimido en dc-suppressions.xml: " + (v.get("notes") or "").strip()
+            if supp is not None and key not in active:
+                it["suppressed"] = ("Suprimido en dc-suppressions.xml: "
+                                    + (notes.get(key) or cpe_notes.get(key[1])
+                                       or dc_note_by_path(key[1]) or "CPE suprimido")).strip()
             items.append(it)
     return c, items
 

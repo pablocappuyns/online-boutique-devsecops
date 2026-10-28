@@ -206,15 +206,21 @@ jobs:
         with:
           path: ~/.dc-data
           key: dc-nvd-${{ github.run_id }}
+      # Dos análisis: sin supresiones (salida completa de la herramienta, base de las métricas y de
+      # DefectDojo) y con devsecops/dc-suppressions.xml (falsos positivos revisados), que decide el
+      # triaje y el gate. Suprimir un CPE puede hacer que Dependency-Check agrupe la dependencia con
+      # otra y omita sus hallazgos, por eso las cifras no se toman del análisis con supresiones.
       - name: Dependency-Check (informe)
         run: |
-          mkdir -p dc
-          "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --project online-boutique \
-            --scan src --exclude "**/loadgenerator/**" --exclude "**/shoppingassistantservice/**" \
-            --exclude "**/node_modules/**" --exclude "**/.gradle/**" \
-            --data "$HOME/.dc-data" --noupdate --suppression devsecops/dc-suppressions.xml \
-            --enableExperimental --disableOssIndex \
-            --format JSON --format XML --format HTML --out dc
+          dc() {
+            "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --project online-boutique \
+              --scan src --exclude "**/loadgenerator/**" --exclude "**/shoppingassistantservice/**" \
+              --exclude "**/node_modules/**" --exclude "**/.gradle/**" \
+              --data "$HOME/.dc-data" --noupdate --enableExperimental --disableOssIndex "$@"
+          }
+          mkdir -p dc/suppressed
+          dc --format JSON --format XML --format HTML --out dc
+          dc --suppression devsecops/dc-suppressions.xml --format JSON --out dc/suppressed
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
         with:
@@ -438,7 +444,13 @@ jobs:
           mode=Audit; [ "$GATE" = 1 ] && mode=Enforce
           repo="${REGISTRY,,}"
           for p in devsecops/policies/*.yaml; do
-            sed -e "s|__MODE__|$mode|g" -e "s|__REGISTRY__|$repo|g" -e "s|__IDENTITY__|$ID|g" "$p" | kubectl apply -f -
+            # El webhook de Kyverno puede tardar unos segundos en responder tras el despliegue del chart
+            for i in 1 2 3 4 5 6; do
+              sed -e "s|__MODE__|$mode|g" -e "s|__REGISTRY__|$repo|g" -e "s|__IDENTITY__|$ID|g" "$p" \
+                | kubectl apply -f - && break
+              [ "$i" = 6 ] && exit 1
+              sleep 10
+            done
           done
           kubectl wait --for=condition=Ready clusterpolicy --all --timeout=180s
           kubectl get clusterpolicy

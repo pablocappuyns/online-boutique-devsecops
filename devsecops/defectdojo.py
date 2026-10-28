@@ -8,7 +8,8 @@ Variables de entorno: DD_URL, DD_USER, DD_PASS.
   (p. ej. "baseline" o "remediado").
 - Importa cada informe con su parser nativo de DefectDojo (un test por imagen) y las
   violaciones de Kyverno y los issues de seguridad de SonarQube como Generic Findings Import.
-- Aplica el triaje manual de devsecops/triage.json (falsos positivos documentados).
+- Aplica el triaje manual de devsecops/triage.json (falsos positivos documentados) y marca como
+  falsos positivos los hallazgos de Dependency-Check suprimidos en devsecops/dc-suppressions.xml.
 - Exporta dd_metrics.json con conteos por severidad, herramienta, CWE y
   categoría OWASP Top 10:2021, además de duplicados y falsos positivos.
 """
@@ -20,6 +21,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import requests
+
+import metrics
 
 URL = os.environ.get("DD_URL", "http://localhost:8080").rstrip("/")
 PRODUCT = "Online Boutique"
@@ -209,10 +212,15 @@ def main():
     # Triaje manual: lista de reglas/ficheros considerados falsos positivos
     triage_file = Path(__file__).with_name("triage.json")
     fp_rules = json.loads(triage_file.read_text(encoding="utf-8")) if triage_file.exists() else []
+    # Dependency-Check: falsos positivos de dc-suppressions.xml, con el mismo criterio que metrics.py
+    # (se importa el análisis completo; el parser usa el nombre del fichero de la dependencia)
+    _, dc_items = metrics.depcheck(art)
+    dc_fp = {(i["id"], i["pkg"]) for i in dc_items if i.get("suppressed")}
+    dc_tests = {t["test"] for t in imported if t["title"] == "OWASP Dependency-Check (SCA)"}
     marked = []
     for fnd in findings:
-        # Suprimidos en dc-suppressions.xml: el parser de Dependency-Check los etiqueta "suppressed"
-        if "suppressed" in (fnd.get("tags") or []):
+        if fnd["test"] in dc_tests and \
+                ((fnd.get("title") or "").rsplit(" | ", 1)[-1], fnd.get("file_path")) in dc_fp:
             marked.append((fnd["id"], "false_p"))
             continue
         for rule in fp_rules:
