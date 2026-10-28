@@ -75,4 +75,14 @@
     <packageUrl regex="true">^pkg:golang/github\.com/jackc/pgx/v5@5\.(9|[1-9][0-9])\..*$</packageUrl>
     <cve>CVE-2026-33815</cve>
   </suppress>
+  <suppress>
+    <notes><![CDATA[CVE-2025-68120 afecta a la extensión Go de Visual Studio Code (CPE go:go con target_sw visual_studio_code), no a módulos Go: los módulos cloud.google.com/go/* se identifican como el producto go:go por el nombre.]]></notes>
+    <packageUrl regex="true">^pkg:golang/.*$</packageUrl>
+    <cve>CVE-2025-68120</cve>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[CVE-2015-3362 afecta al módulo Video de Drupal; el cliente Go de las API de vídeo de Google Cloud (cloud.google.com/go/video) se identifica como ese módulo por el nombre.]]></notes>
+    <packageUrl regex="true">^pkg:golang/cloud\.google\.com/go/video@.*$</packageUrl>
+    <cve>CVE-2015-3362</cve>
+  </suppress>
 </suppressions>
