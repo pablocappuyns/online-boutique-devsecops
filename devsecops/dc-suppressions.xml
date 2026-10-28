@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Falsos positivos de OWASP Dependency-Check revisados manualmente.
+
+  Casi todos se deben a una identificación por CPE errónea: Dependency-Check deduce un CPE a partir
+  del nombre del paquete y compara la versión del paquete con los rangos de otro producto (por
+  ejemplo, la versión 1.84.0 de grpc-netty contra los rangos de Netty 4.1.x). Cada regla limita la
+  supresión al paquete (purl o fichero) y al CPE o CVE concretos, y explica por qué no aplica.
+  Los hallazgos suprimidos se conservan en el informe (suppressedVulnerabilities) y se contabilizan
+  como falsos positivos en las métricas y en DefectDojo.
+-->
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+  <suppress>
+    <notes><![CDATA[grpc-netty (gRPC Java) identificado como Netty: se compara la versión de gRPC con los rangos de Netty. Las bibliotecas netty-* reales se analizan por separado.]]></notes>
+    <filePath regex="true">.*/grpc-netty-[0-9.]+\.jar$</filePath>
+    <cpe>cpe:/a:netty:netty</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[CVE-2026-0994 afecta a protobuf de Python (google.protobuf.json_format.ParseDict; GHSA-7gcm-g887-7qv7, ecosistema PyPI), no a protobuf-java.]]></notes>
+    <filePath regex="true">.*/protobuf-java(-util)?-[0-9.]+\.jar$</filePath>
+    <cve>CVE-2026-0994</cve>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Cliente Go de Memorystore (cloud.google.com/go/redis) identificado como el servidor Redis.]]></notes>
+    <packageUrl regex="true">^pkg:golang/cloud\.google\.com/go/redis@.*$</packageUrl>
+    <cpe>cpe:/a:redis:redis</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Biblioteca Go go-control-plane identificada como el proxy Envoy (CPE envoyproxy:envoy).]]></notes>
+    <packageUrl regex="true">^pkg:golang/github\.com/envoyproxy/go-control-plane(/.*)?@.*$</packageUrl>
+    <cpe>cpe:/a:envoyproxy:envoy</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Nombre "go-control-plane" identificado como el lenguaje Go y como Plane (gestor de proyectos).]]></notes>
+    <packageUrl regex="true">^pkg:golang/github\.com/envoyproxy/go-control-plane(/.*)?@.*$</packageUrl>
+    <cpe>cpe:/a:plane:plane</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Módulos Go identificados como el lenguaje Go (CPE go:go) por el prefijo del nombre.]]></notes>
+    <packageUrl regex="true">^pkg:golang/github\.com/(envoyproxy/go-control-plane|googlecloudplatform/opentelemetry-operations-go)(/.*)?@.*$</packageUrl>
+    <cpe>cpe:/a:go:go</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Detector de recursos de GCP identificado como el SDK de OpenTelemetry-Go: se compara su versión (1.x del detector) con los rangos del SDK. El SDK real (go.opentelemetry.io/otel/sdk) se analiza por separado.]]></notes>
+    <packageUrl regex="true">^pkg:golang/github\.com/googlecloudplatform/opentelemetry-operations-go/.*@.*$</packageUrl>
+    <cpe>cpe:/a:opentelemetry:opentelemetry</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Instrumentación otelgrpc identificada como gRPC: se compara su versión (0.x) con los rangos de gRPC. gRPC-Go se analiza por separado.]]></notes>
+    <packageUrl regex="true">^pkg:golang/go\.opentelemetry\.io/contrib/instrumentation/google\.golang\.org/grpc/otelgrpc@.*$</packageUrl>
+    <cpe>cpe:/a:grpc:grpc</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Paquetes Python de OpenTelemetry identificados como gRPC y como OpenTelemetry-Go: los CVE emparejados son de gRPC (C/Go) y de OpenTelemetry-Go (avisos GO-*). grpcio se analiza por separado.]]></notes>
+    <packageUrl regex="true">^pkg:pypi/opentelemetry-.*@.*$</packageUrl>
+    <cpe>cpe:/a:grpc:grpc</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[Paquetes Python de OpenTelemetry identificados como OpenTelemetry-Go: los CVE emparejados son del SDK de Go (avisos GO-*).]]></notes>
+    <packageUrl regex="true">^pkg:pypi/opentelemetry-.*@.*$</packageUrl>
+    <cpe>cpe:/a:opentelemetry:opentelemetry</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[pyasn1-modules identificado como pyasn1: se compara su versión con los rangos de pyasn1. pyasn1 se analiza por separado.]]></notes>
+    <packageUrl regex="true">^pkg:pypi/pyasn1-modules@.*$</packageUrl>
+    <cpe>cpe:/a:pyasn1:pyasn1</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[go-openapi/jsonpointer identificado como el paquete npm json-pointer (CVE-2022-4742).]]></notes>
+    <packageUrl regex="true">^pkg:golang/github\.com/go-openapi/jsonpointer@.*$</packageUrl>
+    <cpe>cpe:/a:json-pointer_project:json-pointer</cpe>
+  </suppress>
+  <suppress>
+    <notes><![CDATA[CVE-2026-33815 está corregido en pgx v5.9.0 (GO-2026-4771); la configuración de la NVD no indica rango de versiones y marca todas.]]></notes>
+    <packageUrl regex="true">^pkg:golang/github\.com/jackc/pgx/v5@5\.(9|[1-9][0-9])\..*$</packageUrl>
+    <cve>CVE-2026-33815</cve>
+  </suppress>
+</suppressions>

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Normaliza los informes de los 7 controles del pipeline DevSecOps del TFM (Online Boutique).
+"""Normaliza los informes de los 9 controles del pipeline DevSecOps del TFM (Online Boutique).
 
 Lee los artefactos descargados del run (un subdirectorio por artefacto) y genera:
   - metrics.json  -> conteos por control y severidad (Critical/High/Medium/Low/Info)
@@ -7,6 +7,9 @@ Lee los artefactos descargados del run (un subdirectorio por artefacto) y genera
 
 Criterios de normalización de severidad (documentados en la memoria, cap. 5.4):
   - Semgrep (JSON): ERROR/HIGH -> High, WARNING/MEDIUM -> Medium, INFO/LOW -> Low (SARIF como respaldo).
+  - SonarQube: issues con impacto en seguridad (BLOCKER -> Critical, HIGH, MEDIUM, LOW, INFO) y
+    security hotspots pendientes de revisión, con su probabilidad (HIGH/MEDIUM/LOW) como severidad.
+  - OWASP Dependency-Check: severidad CVSS v3 (o la nativa); una CVE por fichero de dependencia.
   - Trivy (fs / image): severidad nativa (CRITICAL/HIGH/MEDIUM/LOW/UNKNOWN->Info). En imagen se
     agregan los 10 servicios; una misma CVE en dos imágenes cuenta dos veces (son dos artefactos).
   - Gitleaks: todo secreto expuesto se considera High.
@@ -86,6 +89,88 @@ def semgrep(d):
             items.append({"rule": r.get("ruleId"), "sev": sev,
                           "file": loc.get("artifactLocation", {}).get("uri"),
                           "line": loc.get("region", {}).get("startLine")})
+    return c, items
+
+
+def sonar(d):
+    data = load(d / "sast-sonarqube" / "sonar.json")
+    if data is None:
+        return None, []
+    imp = {"BLOCKER": "Critical", "HIGH": "High", "MEDIUM": "Medium", "LOW": "Low", "INFO": "Info"}
+    c, items = Counter(), []
+    for i in data.get("issues", []):
+        sec = [x for x in i.get("impacts", []) if x.get("softwareQuality") == "SECURITY"]
+        sev = imp.get(sec[0].get("severity") if sec else "", "Info")
+        c[sev] += 1
+        items.append({"rule": i.get("rule"), "kind": "issue", "sev": sev,
+                      "file": (i.get("component") or "").split(":", 1)[-1], "line": i.get("line"),
+                      "message": (i.get("message") or "")[:200]})
+    # Security hotspots: código sensible pendiente de revisión; severidad = probabilidad declarada
+    for h in data.get("hotspots", []):
+        sev = norm(h.get("vulnerabilityProbability"))
+        c[sev] += 1
+        items.append({"rule": h.get("ruleKey"), "kind": "hotspot", "sev": sev,
+                      "file": (h.get("component") or "").split(":", 1)[-1], "line": h.get("line"),
+                      "category": h.get("securityCategory"), "message": (h.get("message") or "")[:200]})
+    return c, items
+
+
+def dc_note_by_path(path):
+    """Justificación de la regla de dc-suppressions.xml cuyo filePath coincide con la ruta.
+
+    Se usa cuando Dependency-Check agrupa la dependencia suprimida con otra y el informe pierde la nota.
+    """
+    import re
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.parse(Path(__file__).with_name("dc-suppressions.xml")).getroot()
+    except (OSError, ET.ParseError):
+        return None
+    ns = {"s": root.tag.split("}")[0].strip("{")}
+    for s in root.findall("s:suppress", ns):
+        fp = s.find("s:filePath", ns)
+        if fp is not None and fp.get("regex") == "true" and re.match(fp.text or "", path or ""):
+            return (s.findtext("s:notes", "", ns) or "").strip()
+    return None
+
+
+def depcheck(d):
+    data = load(d / "sca-depcheck" / "dependency-check-report.json")
+    if data is None:
+        return None, []
+    c, items, seen = Counter(), [], set()
+    # Análisis con devsecops/dc-suppressions.xml: un hallazgo del análisis completo que ya no aparece
+    # activo en él (en su dependencia o agrupado en otra) es un falso positivo suprimido
+    supp = load(d / "sca-depcheck" / "suppressed" / "dependency-check-report.json")
+    active, notes, cpe_notes = set(), {}, {}
+    for dep in (supp or {}).get("dependencies", []) or []:
+        paths = [dep.get("filePath")] + [r.get("filePath") for r in dep.get("relatedDependencies", []) or []]
+        for v in dep.get("vulnerabilities", []) or []:
+            active.update((v.get("name"), p) for p in paths)
+        for v in dep.get("suppressedVulnerabilities", []) or []:
+            notes[(v.get("name"), dep.get("filePath"))] = (v.get("notes") or "").strip()
+        # Justificación de los CPE suprimidos (vale también para las dependencias agrupadas)
+        n = "; ".join(dict.fromkeys((i.get("notes") or "").strip()
+                                    for i in dep.get("suppressedVulnerabilityIds", []) or [] if i.get("notes")))
+        for p in paths:
+            if n:
+                cpe_notes[p] = n
+    for dep in data.get("dependencies", []) or []:
+        for v in dep.get("vulnerabilities", []) or []:
+            # Una misma CVE en el mismo componente (fichero de dependencia) se cuenta una vez
+            key = (v.get("name"), dep.get("filePath"))
+            if key in seen:
+                continue
+            seen.add(key)
+            sev = norm((v.get("cvssv3") or {}).get("baseSeverity") or v.get("severity"))
+            c[sev] += 1
+            it = {"id": v.get("name"), "pkg": dep.get("fileName"), "sev": sev,
+                  "file": (dep.get("filePath") or "").split("/src/", 1)[-1], "cwe": v.get("cwes")}
+            if supp is not None and key not in active:
+                it["suppressed"] = ("Suprimido en dc-suppressions.xml: "
+                                    + (notes.get(key) or cpe_notes.get(key[1])
+                                       or dc_note_by_path(key[1]) or "CPE suprimido")).strip()
+            items.append(it)
     return c, items
 
 
@@ -230,7 +315,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     controls = [
         ("SAST", "Semgrep", semgrep(art), True),
+        ("SAST-SQ", "SonarQube", sonar(art), True),
         ("SCA", "Trivy fs", trivy(art / "sca-reports" / "trivy-fs.json"), True),
+        ("SCA-DC", "OWASP Dependency-Check", depcheck(art), True),
         ("Secretos", "Gitleaks", gitleaks(art), True),
         ("Contenedor", "Trivy image (10 imágenes)", images(art), True),
         ("IaC", "Checkov", checkov(art), True),

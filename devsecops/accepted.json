@@ -1,0 +1,7 @@
+[
+ {
+  "control": "depcheck",
+  "match": ["GHSA-w5hq-g745-h8pq", "uuid:"],
+  "reason": "uuid < 11.1.1 en dependencias transitivas de bibliotecas de Google Cloud (el servicio usa uuid 14.0.2, corregida). El aviso afecta solo a v3()/v5()/v6() con buffer de salida y GitHub lo clasifica como Moderate (Trivy: Medium); Dependency-Check lo eleva a High. Se acepta hasta que las bibliotecas actualicen la dependencia."
+ }
+]
