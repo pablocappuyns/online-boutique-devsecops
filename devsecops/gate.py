@@ -2,7 +2,8 @@
 """Gate de SonarQube y Dependency-Check con la misma normalización que metrics.py.
 
 Uso: python gate.py <sonar|depcheck> <dir_artefactos>
-Falla (código 1) si hay hallazgos Critical o High que no estén aceptados en devsecops/accepted.json
+Falla (código 1) si hay hallazgos Critical o High que no estén suprimidos como falsos positivos
+(devsecops/dc-suppressions.xml) ni aceptados en devsecops/accepted.json
 (lista de {"control", "match": [fragmentos], "reason"}; un hallazgo se acepta si todos los
 fragmentos aparecen en su descripción).
 """
@@ -20,7 +21,8 @@ accepted = [a for a in (json.loads(acc_path.read_text(encoding="utf-8")) if acc_
             if a["control"] == ctrl]
 blocking = []
 for it in items:
-    if it["sev"] not in ("Critical", "High"):
+    # Los falsos positivos suprimidos en dc-suppressions.xml no bloquean
+    if it["sev"] not in ("Critical", "High") or it.get("suppressed"):
         continue
     hay = " ".join(str(v) for v in it.values() if v)
     if any(all(t in hay for t in a["match"]) for a in accepted):

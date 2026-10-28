@@ -121,7 +121,11 @@ def depcheck(d):
         return None, []
     c, items, seen = Counter(), [], set()
     for dep in data.get("dependencies", []) or []:
-        for v in dep.get("vulnerabilities", []) or []:
+        # Los suprimidos (devsecops/dc-suppressions.xml) se cuentan como salida de la herramienta y
+        # se marcan para que el triaje los clasifique como falsos positivos
+        vulns = [(v, False) for v in dep.get("vulnerabilities", []) or []] + \
+                [(v, True) for v in dep.get("suppressedVulnerabilities", []) or []]
+        for v, suppressed in vulns:
             # Una misma CVE en el mismo componente (fichero de dependencia) se cuenta una vez
             key = (v.get("name"), dep.get("filePath"))
             if key in seen:
@@ -129,9 +133,11 @@ def depcheck(d):
             seen.add(key)
             sev = norm((v.get("cvssv3") or {}).get("baseSeverity") or v.get("severity"))
             c[sev] += 1
-            items.append({"id": v.get("name"), "pkg": dep.get("fileName"), "sev": sev,
-                          "file": (dep.get("filePath") or "").split("/src/", 1)[-1],
-                          "cwe": v.get("cwes")})
+            it = {"id": v.get("name"), "pkg": dep.get("fileName"), "sev": sev,
+                  "file": (dep.get("filePath") or "").split("/src/", 1)[-1], "cwe": v.get("cwes")}
+            if suppressed:
+                it["suppressed"] = "Suprimido en dc-suppressions.xml: " + (v.get("notes") or "").strip()
+            items.append(it)
     return c, items
 
 

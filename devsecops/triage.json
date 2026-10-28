@@ -56,5 +56,12 @@
   ],
   "reason": "Flujo de importación en DefectDojo: no construye artefactos; sus entradas se validan con una expresión regular",
   "category": "fp"
+ },
+ {
+  "match": [
+   "Suprimido en dc-suppressions.xml"
+  ],
+  "reason": "Dependency-Check: CPE o rango de versiones erróneo; supresión revisada y justificada en dc-suppressions.xml",
+  "category": "fp"
  }
 ]

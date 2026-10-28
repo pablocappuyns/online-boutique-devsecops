@@ -211,6 +211,10 @@ def main():
     fp_rules = json.loads(triage_file.read_text(encoding="utf-8")) if triage_file.exists() else []
     marked = []
     for fnd in findings:
+        # Suprimidos en dc-suppressions.xml: el parser de Dependency-Check los etiqueta "suppressed"
+        if "suppressed" in (fnd.get("tags") or []):
+            marked.append((fnd["id"], "false_p"))
+            continue
         for rule in fp_rules:
             hay = " ".join(str(fnd.get(k) or "") for k in ("title", "file_path", "vuln_id_from_tool", "component_name", "description"))
             if all(tok in hay for tok in rule["match"]) and not any(tok in hay for tok in rule.get("unless", [])):

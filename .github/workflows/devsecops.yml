@@ -212,7 +212,7 @@ jobs:
           "$RUNNER_TEMP/dependency-check/bin/dependency-check.sh" --project online-boutique \
             --scan src --exclude "**/loadgenerator/**" --exclude "**/shoppingassistantservice/**" \
             --exclude "**/node_modules/**" --exclude "**/.gradle/**" \
-            --data "$HOME/.dc-data" --noupdate \
+            --data "$HOME/.dc-data" --noupdate --suppression devsecops/dc-suppressions.xml \
             --enableExperimental --disableOssIndex \
             --format JSON --format XML --format HTML --out dc
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
