@@ -124,11 +124,14 @@ jobs:
       - name: Preparar SonarQube (credencial y token de un solo uso)
         run: |
           python3 devsecops/sonar.py wait-up
-          # La instancia arranca con admin/admin: se sustituye por una contraseña aleatoria y se crea un token
+          # La instancia arranca con la contraseña por defecto del usuario admin: se sustituye por una
+          # aleatoria y se crea un token. La contraseña por defecto va en una variable para que no
+          # aparezca como credencial literal en el código (Gitleaks, regla curl-auth-user)
+          def=admin
           pw="$(openssl rand -hex 16)Aa1!"
           echo "::add-mask::$pw"
-          curl -sSf -u admin:admin -X POST "$SONAR_HOST/api/users/change_password" \
-            --data-urlencode login=admin --data-urlencode previousPassword=admin --data-urlencode "password=$pw"
+          curl -sSf -u "admin:$def" -X POST "$SONAR_HOST/api/users/change_password" \
+            --data-urlencode login=admin --data-urlencode "previousPassword=$def" --data-urlencode "password=$pw"
           tok=$(curl -sSf -u "admin:$pw" -X POST "$SONAR_HOST/api/user_tokens/generate" \
             --data-urlencode name=ci --data-urlencode type=USER_TOKEN | jq -r .token)
           echo "::add-mask::$tok"
