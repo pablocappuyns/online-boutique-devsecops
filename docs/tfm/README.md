@@ -35,7 +35,8 @@ lo añadido para el TFM está en:
    `enforce_gates` se superaron todos los gates y las tres pruebas negativas de admisión fueron
    rechazadas. Como las bases de vulnerabilidades cambian, una ejecución posterior puede fallar
    por CVE publicadas después: el 23-11-2026 el mismo commit falló por CVE-2026-78661
-   (golang.org/x/net) y CVE-2026-119194 (pyasn1).
+   (golang.org/x/net) y CVE-2026-119194 (pyasn1). Se corrigieron ese mismo día (commit 5c1353b)
+   y la ejecución con gates 45234109561 volvió a superarlos todos.
 5. Gestión centralizada: ejecutar *DefectDojo (gestión centralizada)* con el identificador de
    cada ejecución.
 6. Datos de la memoria: anotar los identificadores en `docs/tfm/resultados/runs.json` y ejecutar
