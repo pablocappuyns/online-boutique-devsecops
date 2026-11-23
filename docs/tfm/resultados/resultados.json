@@ -45499,6 +45499,531 @@
    }
   },
   "dd_baseline": {
+   "id": 45202126569,
+   "durations": {
+    "head_sha": "a1c1961",
+    "event": "workflow_dispatch",
+    "conclusion": "success",
+    "created_at": "2026-11-23T15:09:59Z",
+    "jobs": {
+     "defectdojo": {
+      "s": 259,
+      "conclusion": "success"
+     }
+    },
+    "wall_s": 259,
+    "billable_min": 5
+   },
+   "dd": {
+    "engagement": "baseline",
+    "engagement_id": 1,
+    "imported": [
+     {
+      "title": "Semgrep (SAST)",
+      "test": 1,
+      "scan_type": "Semgrep JSON Report"
+     },
+     {
+      "title": "Trivy fs (SCA)",
+      "test": 2,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Gitleaks (secretos)",
+      "test": 3,
+      "scan_type": "Gitleaks Scan"
+     },
+     {
+      "title": "Checkov (IaC)",
+      "test": 4,
+      "scan_type": "Checkov Scan"
+     },
+     {
+      "title": "OWASP ZAP (DAST)",
+      "test": 5,
+      "scan_type": "ZAP Scan"
+     },
+     {
+      "title": "OWASP Dependency-Check (SCA)",
+      "test": 6,
+      "scan_type": "Dependency Check Scan"
+     },
+     {
+      "title": "Trivy image (adservice)",
+      "test": 7,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (cartservice)",
+      "test": 8,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (checkoutservice)",
+      "test": 9,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (currencyservice)",
+      "test": 10,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (emailservice)",
+      "test": 11,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (frontend)",
+      "test": 12,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (paymentservice)",
+      "test": 13,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (productcatalogservice)",
+      "test": 14,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (recommendationservice)",
+      "test": 15,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (shippingservice)",
+      "test": 16,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Kyverno (admisión)",
+      "test": 17,
+      "scan_type": "Generic Findings Import"
+     },
+     {
+      "title": "SonarQube (SAST)",
+      "test": 18,
+      "scan_type": "Generic Findings Import"
+     }
+    ],
+    "findings_total": 1480,
+    "duplicates": 460,
+    "false_positives": 339,
+    "out_of_scope": 15,
+    "active_unique": 666,
+    "by_severity": {
+     "High": 173,
+     "Medium": 299,
+     "Info": 34,
+     "Low": 150,
+     "Critical": 10
+    },
+    "by_tool": {
+     "Semgrep (SAST)": {
+      "High": 12,
+      "Medium": 8
+     },
+     "Trivy fs (SCA)": {
+      "Medium": 50,
+      "Info": 12,
+      "High": 36,
+      "Low": 4,
+      "Critical": 4
+     },
+     "Checkov (IaC)": {
+      "Medium": 92
+     },
+     "OWASP ZAP (DAST)": {
+      "Medium": 4,
+      "Low": 7,
+      "Info": 3
+     },
+     "OWASP Dependency-Check (SCA)": {
+      "Medium": 8,
+      "Low": 1,
+      "High": 17,
+      "Critical": 2
+     },
+     "Trivy image (adservice)": {
+      "High": 15,
+      "Medium": 14,
+      "Low": 18,
+      "Info": 2,
+      "Critical": 1
+     },
+     "Trivy image (cartservice)": {
+      "Medium": 30,
+      "High": 4,
+      "Low": 54
+     },
+     "Trivy image (checkoutservice)": {
+      "Medium": 15,
+      "Info": 3,
+      "High": 5,
+      "Low": 1
+     },
+     "Trivy image (currencyservice)": {
+      "High": 25,
+      "Medium": 23,
+      "Low": 17,
+      "Info": 2,
+      "Critical": 1
+     },
+     "Trivy image (emailservice)": {
+      "High": 22,
+      "Medium": 13,
+      "Low": 13,
+      "Info": 2,
+      "Critical": 2
+     },
+     "Trivy image (frontend)": {
+      "Medium": 15,
+      "Info": 3,
+      "High": 5,
+      "Low": 1
+     },
+     "Trivy image (paymentservice)": {
+      "High": 2,
+      "Medium": 7,
+      "Low": 12,
+      "Info": 2
+     },
+     "Trivy image (recommendationservice)": {
+      "High": 9,
+      "Medium": 7,
+      "Low": 12,
+      "Info": 2
+     },
+     "Trivy image (shippingservice)": {
+      "Info": 3,
+      "High": 5,
+      "Medium": 13,
+      "Low": 1
+     },
+     "Kyverno (admisión)": {
+      "High": 12
+     },
+     "SonarQube (SAST)": {
+      "Low": 9,
+      "High": 4
+     }
+    },
+    "top_cwe": [
+     [
+      770,
+      63
+     ],
+     [
+      787,
+      38
+     ],
+     [
+      476,
+      38
+     ],
+     [
+      405,
+      36
+     ],
+     [
+      400,
+      31
+     ],
+     [
+      674,
+      24
+     ],
+     [
+      444,
+      17
+     ],
+     [
+      354,
+      15
+     ],
+     [
+      94,
+      12
+     ],
+     [
+      269,
+      11
+     ],
+     [
+      1321,
+      11
+     ],
+     [
+      835,
+      11
+     ],
+     [
+      754,
+      11
+     ],
+     [
+      415,
+      11
+     ],
+     [
+      134,
+      11
+     ]
+    ],
+    "owasp_top10": {
+     "A06 Vulnerable and Outdated Components": 487,
+     "A05 Security Misconfiguration": 114,
+     "Sin categoría (CWE no mapeado)": 38,
+     "A04 Insecure Design": 11,
+     "A01 Broken Access Control": 5,
+     "A08 Software and Data Integrity Failures": 4,
+     "A03 Injection": 4,
+     "A07 Identification and Authentication Failures": 2,
+     "A02 Cryptographic Failures": 1
+    },
+    "with_cwe_pct": 77.8
+   }
+  },
+  "dd_remediado": {
+   "id": 45202133104,
+   "durations": {
+    "head_sha": "a1c1961",
+    "event": "workflow_dispatch",
+    "conclusion": "success",
+    "created_at": "2026-11-23T15:10:01Z",
+    "jobs": {
+     "defectdojo": {
+      "s": 348,
+      "conclusion": "success"
+     }
+    },
+    "wall_s": 348,
+    "billable_min": 6
+   },
+   "dd": {
+    "engagement": "remediado",
+    "engagement_id": 1,
+    "imported": [
+     {
+      "title": "Semgrep (SAST)",
+      "test": 1,
+      "scan_type": "Semgrep JSON Report"
+     },
+     {
+      "title": "Trivy fs (SCA)",
+      "test": 2,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Gitleaks (secretos)",
+      "test": 3,
+      "scan_type": "Gitleaks Scan"
+     },
+     {
+      "title": "Checkov (IaC)",
+      "test": 4,
+      "scan_type": "Checkov Scan"
+     },
+     {
+      "title": "OWASP ZAP (DAST)",
+      "test": 5,
+      "scan_type": "ZAP Scan"
+     },
+     {
+      "title": "OWASP Dependency-Check (SCA)",
+      "test": 6,
+      "scan_type": "Dependency Check Scan"
+     },
+     {
+      "title": "Trivy image (adservice)",
+      "test": 7,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (cartservice)",
+      "test": 8,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (checkoutservice)",
+      "test": 9,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (currencyservice)",
+      "test": 10,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (emailservice)",
+      "test": 11,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (frontend)",
+      "test": 12,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (paymentservice)",
+      "test": 13,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (productcatalogservice)",
+      "test": 14,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (recommendationservice)",
+      "test": 15,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Trivy image (shippingservice)",
+      "test": 16,
+      "scan_type": "Trivy Scan"
+     },
+     {
+      "title": "Kyverno (admisión)",
+      "test": 17,
+      "scan_type": "Generic Findings Import"
+     },
+     {
+      "title": "SonarQube (SAST)",
+      "test": 18,
+      "scan_type": "Generic Findings Import"
+     }
+    ],
+    "findings_total": 439,
+    "duplicates": 49,
+    "false_positives": 317,
+    "out_of_scope": 14,
+    "active_unique": 59,
+    "by_severity": {
+     "Medium": 27,
+     "High": 4,
+     "Info": 24,
+     "Low": 4
+    },
+    "by_tool": {
+     "Semgrep (SAST)": {
+      "Medium": 6,
+      "High": 2
+     },
+     "Trivy fs (SCA)": {
+      "Info": 12,
+      "Low": 2,
+      "Medium": 10
+     },
+     "OWASP ZAP (DAST)": {
+      "Medium": 3,
+      "Info": 3
+     },
+     "OWASP Dependency-Check (SCA)": {
+      "Low": 1,
+      "Medium": 1,
+      "High": 2
+     },
+     "Trivy image (cartservice)": {
+      "Medium": 2
+     },
+     "Trivy image (checkoutservice)": {
+      "Info": 3
+     },
+     "Trivy image (currencyservice)": {
+      "Low": 1,
+      "Medium": 2
+     },
+     "Trivy image (emailservice)": {
+      "Medium": 3
+     },
+     "Trivy image (frontend)": {
+      "Info": 3
+     },
+     "Trivy image (shippingservice)": {
+      "Info": 3
+     }
+    },
+    "top_cwe": [
+     [
+      787,
+      9
+     ],
+     [
+      352,
+      4
+     ],
+     [
+      705,
+      4
+     ],
+     [
+      1333,
+      3
+     ],
+     [
+      400,
+      3
+     ],
+     [
+      377,
+      3
+     ],
+     [
+      614,
+      2
+     ],
+     [
+      300,
+      2
+     ],
+     [
+      319,
+      1
+     ],
+     [
+      693,
+      1
+     ],
+     [
+      345,
+      1
+     ],
+     [
+      565,
+      1
+     ],
+     [
+      524,
+      1
+     ],
+     [
+      444,
+      1
+     ],
+     [
+      789,
+      1
+     ]
+    ],
+    "owasp_top10": {
+     "A06 Vulnerable and Outdated Components": 41,
+     "Sin categoría (CWE no mapeado)": 5,
+     "A01 Broken Access Control": 4,
+     "A05 Security Misconfiguration": 3,
+     "A07 Identification and Authentication Failures": 2,
+     "A08 Software and Data Integrity Failures": 2,
+     "A02 Cryptographic Failures": 1,
+     "A04 Insecure Design": 1
+    },
+    "with_cwe_pct": 62.7
+   }
+  },
+  "dd_baseline_v1": {
    "id": 40655610308,
    "durations": {
     "head_sha": "b4e6505",
@@ -45788,7 +46313,7 @@
     "with_cwe_pct": 77.9
    }
   },
-  "dd_remediado": {
+  "dd_remediado_v1": {
    "id": 40655614502,
    "durations": {
     "head_sha": "b4e6505",

@@ -1,1 +1,10 @@
-{"baseline": 40653615336, "gate_baseline": 40653618187, "remediado": 40653612441, "gate_remediado": 40653620855, "dd_baseline": 40655610308, "dd_remediado": 40655614502}
+{
+ "baseline": 40653615336,
+ "gate_baseline": 40653618187,
+ "remediado": 40653612441,
+ "gate_remediado": 40653620855,
+ "dd_baseline": 45202126569,
+ "dd_remediado": 45202133104,
+ "dd_baseline_v1": 40655610308,
+ "dd_remediado_v1": 40655614502
+}
