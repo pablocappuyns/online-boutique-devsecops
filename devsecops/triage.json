@@ -59,6 +59,45 @@
  },
  {
   "match": [
+   "math-random-used"
+  ],
+  "reason": "math/rand para elegir anuncios y generar números de seguimiento simulados: no tiene uso criptográfico",
+  "category": "fp"
+ },
+ {
+  "match": [
+   "no-direct-write-to-responsewriter",
+   "handlers.go"
+  ],
+  "reason": "Escribe la serialización JSON de datos del catálogo, no entrada del usuario",
+  "category": "fp"
+ },
+ {
+  "match": [
+   "path-join-resolve-traversal",
+   "paymentservice"
+  ],
+  "reason": "path.join con rutas constantes de los ficheros .proto: no interviene ninguna entrada externa",
+  "category": "fp"
+ },
+ {
+  "match": [
+   "direct-use-of-jinja2",
+   "emailservice"
+  ],
+  "reason": "El entorno Jinja2 se crea con autoescape activado para HTML (select_autoescape)",
+  "category": "fp"
+ },
+ {
+  "match": [
+   "S2245",
+   "recommendation_server.py"
+  ],
+  "reason": "random.sample para elegir recomendaciones: no tiene uso criptográfico",
+  "category": "fp"
+ },
+ {
+  "match": [
    "Suprimido en dc-suppressions.xml"
   ],
   "reason": "Dependency-Check: CPE o rango de versiones erróneo; supresión revisada y justificada en dc-suppressions.xml",

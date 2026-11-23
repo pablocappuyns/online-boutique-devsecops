@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capturas de DefectDojo para la memoria (figuras del cap. 5.5 / 6).
+"""Capturas de DefectDojo para la memoria (figuras del apartado de gestión centralizada, cap. 4).
 
 Uso: python dd_screens.py <engagement_id> <dir_salida>
 Variables de entorno: DD_URL, DD_USER, DD_PASS.

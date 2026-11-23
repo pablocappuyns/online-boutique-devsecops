@@ -1,0 +1,8 @@
+{
+ "r1_remediado": 45188940396,
+ "r1_baseline": 45188946226,
+ "r1_gate_remediado": 45188954597,
+ "canary": 45188961419,
+ "r2_baseline": 45191049583,
+ "r2_remediado": 45191054297
+}

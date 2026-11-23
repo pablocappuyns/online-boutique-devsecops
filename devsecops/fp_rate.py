@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tasa de falsos positivos (OE4) aplicando el triaje de triage.json a metrics.json.
+"""Tasa de falsos positivos (OE5) aplicando el triaje de triage.json a metrics.json.
 
 Uso: python fp_rate.py <metrics.json> [<salida.json>]
 Un hallazgo coincide con una regla si TODOS sus fragmentos aparecen en su descripción

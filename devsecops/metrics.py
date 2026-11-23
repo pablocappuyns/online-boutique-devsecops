@@ -5,7 +5,7 @@ Lee los artefactos descargados del run (un subdirectorio por artefacto) y genera
   - metrics.json  -> conteos por control y severidad (Critical/High/Medium/Low/Info)
   - metrics.md    -> tabla Markdown (se vuelca al resumen del run)
 
-Criterios de normalización de severidad (documentados en la memoria, cap. 5.4):
+Criterios de normalización de severidad (documentados en la memoria, cap. 4, security gates y política de severidad):
   - Semgrep (JSON): ERROR/HIGH -> High, WARNING/MEDIUM -> Medium, INFO/LOW -> Low (SARIF como respaldo).
   - SonarQube: issues con impacto en seguridad (BLOCKER -> Critical, HIGH, MEDIUM, LOW, INFO) y
     security hotspots pendientes de revisión, con su probabilidad (HIGH/MEDIUM/LOW) como severidad.

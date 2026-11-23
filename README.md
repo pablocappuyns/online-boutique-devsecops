@@ -1,3 +1,5 @@
+> **Laboratorio de un TFM (UNIR, 2026).** Este fork añade un pipeline DevSecOps con firma, SBOM, procedencia SLSA y control de admisión con Kyverno. Descripción, ramas y procedimiento de reproducción en [docs/tfm/README.md](docs/tfm/README.md).
+
 <!-- <p align="center">
 <img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
 </p> -->
