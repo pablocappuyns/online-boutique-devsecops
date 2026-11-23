@@ -1,0 +1,23 @@
+# Intentional positive control for the TFM evaluation (canary branch only): insecure pod
+# definition. It is not listed in kustomization.yaml, so it is analysed but never deployed.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: canary-privileged
+spec:
+  hostNetwork: true
+  hostPID: true
+  containers:
+    - name: debug
+      image: busybox:latest
+      command: ["sleep", "3600"]
+      securityContext:
+        privileged: true
+        runAsUser: 0
+      volumeMounts:
+        - name: host
+          mountPath: /host
+  volumes:
+    - name: host
+      hostPath:
+        path: /
