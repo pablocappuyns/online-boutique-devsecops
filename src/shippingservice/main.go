@@ -86,10 +86,10 @@ func main() {
 	var srv *grpc.Server
 	if os.Getenv("DISABLE_STATS") == "" {
 		log.Info("Stats enabled, but temporarily unavailable")
-		srv = grpc.NewServer() // nosemgrep
+		srv = grpc.NewServer() // nosemgrep: go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection
 	} else {
 		log.Info("Stats disabled.")
-		srv = grpc.NewServer() // nosemgrep
+		srv = grpc.NewServer() // nosemgrep: go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection
 	}
 	svc := &server{}
 	pb.RegisterShippingServiceServer(srv, svc)
