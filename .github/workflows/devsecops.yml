@@ -22,6 +22,11 @@ name: DevSecOps Pipeline
 on:
   push:
     branches: [main]
+  # Ejecución periódica con gates: el estado «remediado» caduca cuando las bases de
+  # vulnerabilidades incorporan CVE nuevas, de modo que el pipeline se ejecuta aunque el código
+  # no cambie (lunes a las 06:17 UTC).
+  schedule:
+    - cron: "17 6 * * 1"
   workflow_dispatch:
     inputs:
       enforce_gates:
@@ -37,7 +42,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GATE: ${{ (github.event_name == 'workflow_dispatch' && inputs.enforce_gates) && '1' || '0' }}
+  GATE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.enforce_gates) || github.event_name == 'schedule') && '1' || '0' }}
   REGISTRY: ghcr.io/${{ github.repository }}
   TRIVY_IMAGE: aquasec/trivy:0.58.1@sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7
   GITLEAKS_IMAGE: zricethezav/gitleaks:v8.24.0@sha256:2bcceac45179b3a91bff11a824d0fb952585b429e54fc928728b1d4d5c3e5176
@@ -356,6 +361,22 @@ jobs:
         run: |
           docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD/out:/out" "$TRIVY_IMAGE" \
             image --format cyclonedx --output /out/sbom.cdx.json "$REF"
+      # VEX (OpenVEX): las excepciones del gate en un formato interoperable. Se genera a partir
+      # de devsecops/accepted.json, lo consume Trivy (--vex), se atesta junto al SBOM y la política
+      # de admisión exige su presencia.
+      - name: VEX de los riesgos aceptados (OpenVEX)
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: python3 devsecops/vex.py "$REF" out/vex.openvex.json
+      - name: Trivy image aplicando el VEX (efecto de las excepciones)
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ github.token }}
+        run: |
+          docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD/out:/out" "$TRIVY_IMAGE" \
+            image --scanners vuln --vex /out/vex.openvex.json --show-suppressed \
+            --format json --output /out/trivy-image-vex.json "$REF"
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
@@ -366,6 +387,9 @@ jobs:
           # Certificado efímero de Fulcio ligado a la identidad OIDC del workflow; registro en Rekor
           cosign sign --yes "$REF"
           cosign attest --yes --type cyclonedx --predicate out/sbom.cdx.json "$REF"
+          # Tipo de predicado propio de OpenVEX; lo verifica la política de admisión
+          cosign attest --yes --type https://openvex.dev/ns/v0.2.0 \
+            --predicate out/vex.openvex.json "$REF"
       - name: Provenance SLSA (GitHub artifact attestations)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -385,7 +409,8 @@ jobs:
           TRIVY_PASSWORD: ${{ github.token }}
         run: |
           docker run --rm -e TRIVY_USERNAME -e TRIVY_PASSWORD -v "$PWD:/src" "$TRIVY_IMAGE" \
-            image --scanners vuln --severity CRITICAL,HIGH --ignorefile /src/.trivyignore --exit-code 1 "$REF"
+            image --scanners vuln --severity CRITICAL,HIGH --ignorefile /src/.trivyignore \
+            --vex /src/out/vex.openvex.json --exit-code 1 "$REF"
 
   # ---------- 6. Despliegue con control de admisión + DAST ----------
   deploy:
@@ -443,13 +468,15 @@ jobs:
       - name: Políticas de admisión (Audit en informe, Enforce con gates)
         env:
           ID: https://github.com/${{ github.repository }}/.github/workflows/devsecops.yml@${{ github.ref }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
           mode=Audit; [ "$GATE" = 1 ] && mode=Enforce
           repo="${REGISTRY,,}"
           for p in devsecops/policies/*.yaml; do
             # El webhook de Kyverno puede tardar unos segundos en responder tras el despliegue del chart
             for i in 1 2 3 4 5 6; do
-              sed -e "s|__MODE__|$mode|g" -e "s|__REGISTRY__|$repo|g" -e "s|__IDENTITY__|$ID|g" "$p" \
+              sed -e "s|__MODE__|$mode|g" -e "s|__REGISTRY__|$repo|g" -e "s|__IDENTITY__|$ID|g" \
+                  -e "s|__REPO_URL__|$REPO_URL|g" "$p" \
                 | kubectl apply -f - && break
               [ "$i" = 6 ] && exit 1
               sleep 10
@@ -483,11 +510,14 @@ jobs:
         run: |
           # 1) Imagen de nuestro registro sin firmar: debe ser rechazada por verify-image-signatures
           docker pull -q busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+          # El digest se resuelve en el registro: .RepoDigests devuelve el de la imagen de origen,
+          # que no existe en el repositorio de prueba y dejaría la referencia colgando
+          pushed() { docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}'; }
           unsigned="${REGISTRY,,}/unsigned-test:${{ github.sha }}"
           docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$unsigned"
           docker push -q "$unsigned"
           # Por digest, para que el rechazo se deba a la firma y no a la política de digest
-          unsigned="${unsigned%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$unsigned" | cut -d@ -f2)"
+          unsigned="${unsigned%:*}@$(pushed "$unsigned")"
           if kubectl -n boutique run unsigned-test --image="$unsigned" --restart=Never \
                --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$unsigned"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
                > admission/neg-unsigned.txt 2>&1; then
@@ -497,22 +527,38 @@ jobs:
           nosbom="${REGISTRY,,}/nosbom-test:${{ github.sha }}"
           docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$nosbom"
           docker push -q "$nosbom"
-          nosbom_ref="${nosbom%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$nosbom" | cut -d@ -f2)"
+          nosbom_ref="${nosbom%:*}@$(pushed "$nosbom")"
           cosign sign --yes "$nosbom_ref"
           if kubectl -n boutique run nosbom-test --image="$nosbom_ref" --restart=Never \
                --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$nosbom_ref"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
                > admission/neg-nosbom.txt 2>&1; then
             echo "FALLO: imagen sin SBOM admitida"; r3=admitted
           else r3=denied; fi
-          # 3) Pod privilegiado con imagen fijada por digest: debe ser rechazado por Pod Security restricted
+          # 3) Imagen firmada y con SBOM atestado, pero sin VEX: debe ser rechazada (attestations)
+          novex="${REGISTRY,,}/novex-test:${{ github.sha }}"
+          docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$novex"
+          docker push -q "$novex"
+          novex_ref="${novex%:*}@$(pushed "$novex")"
+          mkdir -p novex
+          docker run --rm -e TRIVY_USERNAME="${{ github.actor }}" -e TRIVY_PASSWORD="${{ github.token }}" \
+            -v "$PWD/novex:/out" "$TRIVY_IMAGE" image --format cyclonedx \
+            --output /out/sbom.cdx.json "$novex_ref"
+          cosign sign --yes "$novex_ref"
+          cosign attest --yes --type cyclonedx --predicate novex/sbom.cdx.json "$novex_ref"
+          if kubectl -n boutique run novex-test --image="$novex_ref" --restart=Never \
+               --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$novex_ref"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
+               > admission/neg-novex.txt 2>&1; then
+            echo "FALLO: imagen sin VEX admitida"; r4=admitted
+          else r4=denied; fi
+          # 4) Pod privilegiado con imagen fijada por digest: debe ser rechazado por Pod Security restricted
           if kubectl -n boutique run priv-test --restart=Never \
                --image=busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 \
                --privileged -- sleep 5 > admission/neg-privileged.txt 2>&1; then
             echo "FALLO: pod privilegiado admitido"; r2=admitted
           else r2=denied; fi
           cat admission/neg-*.txt
-          echo "{\"unsigned_image\": \"$r1\", \"signed_without_sbom\": \"$r3\", \"privileged_pod\": \"$r2\"}" | tee admission/negative-tests.json
-          test "$r1" = denied && test "$r2" = denied && test "$r3" = denied
+          echo "{\"unsigned_image\": \"$r1\", \"signed_without_sbom\": \"$r3\", \"signed_without_vex\": \"$r4\", \"privileged_pod\": \"$r2\"}" | tee admission/negative-tests.json
+          test "$r1" = denied && test "$r2" = denied && test "$r3" = denied && test "$r4" = denied
       - name: Recoger PolicyReports
         if: always()
         run: |
