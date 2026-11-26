@@ -1,3 +1,6 @@
 # Riesgos aceptados de forma temporal en el security gate (Trivy fs e image).
 # Formato: <CVE> exp:<AAAA-MM-DD>  -> la excepción caduca y el gate vuelve a fallar.
 # Cada entrada debe ir precedida de su justificación (TFM, apartado de triaje).
+# Las excepciones con identificador de vulnerabilidad se declaran en devsecops/accepted.json y
+# viajan con la imagen como documento VEX (OpenVEX), que el gate aplica con --vex y Kyverno exige
+# atestado. Este fichero queda para excepciones sin CVE/GHSA asociado.

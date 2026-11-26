@@ -309,6 +309,37 @@ def zap(d):
     return c, items
 
 
+def vex(d):
+    """Efecto del VEX (OpenVEX) sobre el análisis de imagen: hallazgos con y sin documento.
+
+    Compara, por servicio, trivy-image.json (sin VEX) con trivy-image-vex.json (con --vex) y
+    recoge los hallazgos que el VEX marca como no explotables (ExperimentalModifiedFindings).
+    """
+    dirs = sorted(d.glob("container-*"))
+    if not dirs:
+        return None
+    out = {"por_servicio": {}, "suprimidos": []}
+    for sd in dirs:
+        svc = sd.name.removeprefix("container-")
+        c_sin, _ = trivy(sd / "trivy-image.json")
+        c_con, _ = trivy(sd / "trivy-image-vex.json")
+        if c_sin is None or c_con is None:
+            continue
+        out["por_servicio"][svc] = {"sin_vex": sum(c_sin.values()), "con_vex": sum(c_con.values())}
+        data = load(sd / "trivy-image-vex.json") or {}
+        for res in data.get("Results", []) or []:
+            for v in res.get("ExperimentalModifiedFindings", []) or []:
+                if (v.get("Status") or "").lower() in ("notaffected", "not_affected"):
+                    out["suprimidos"].append({"svc": svc, "id": v.get("VulnerabilityID"),
+                                              "pkg": v.get("PkgName"), "ver": v.get("InstalledVersion"),
+                                              "sev": norm(v.get("Severity")),
+                                              "source": v.get("Source") or v.get("Statement")})
+    tot_sin = sum(v["sin_vex"] for v in out["por_servicio"].values())
+    tot_con = sum(v["con_vex"] for v in out["por_servicio"].values())
+    out["total"] = {"sin_vex": tot_sin, "con_vex": tot_con, "diferencia": tot_sin - tot_con}
+    return out
+
+
 def main():
     art = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(".")
@@ -350,6 +381,12 @@ def main():
         ok = {k: sum(1 for v in sc.values() if v.get(k) == "ok") for k in ("firma", "sbom", "provenance")}
         lines += ["", f"Cadena de suministro ({len(sc)} imágenes verificadas antes de desplegar): "
                   + ", ".join(f"{k} {v}/{len(sc)}" for k, v in ok.items())]
+    vx = vex(art)
+    if vx is not None:
+        result["vex"] = vx
+        t = vx["total"]
+        lines += ["", f"VEX (OpenVEX) aplicado al analisis de imagen: {t['sin_vex']} hallazgos sin VEX, "
+                  f"{t['con_vex']} con VEX ({t['diferencia']} marcados como no explotables)."]
     neg = load(art / "admission-kyverno" / "negative-tests.json")
     if neg is not None:
         result["negative_tests"] = neg

@@ -37,6 +37,7 @@ spec:
                     rekor:
                       url: https://rekor.sigstore.dev
           attestations:
+            # SBOM CycloneDX atestado por la identidad del workflow
             - type: https://cyclonedx.org/bom
               attestors:
                 - entries:
@@ -50,3 +51,18 @@ spec:
                     - key: "{{ bomFormat }}"
                       operator: Equals
                       value: CycloneDX
+            # VEX (OpenVEX) con las excepciones vigentes del gate: sin el documento, la imagen
+            # no se admite, de modo que los riesgos aceptados viajan con el artefacto
+            - type: https://openvex.dev/ns/v0.2.0
+              attestors:
+                - entries:
+                    - keyless:
+                        subject: "__IDENTITY__"
+                        issuer: "https://token.actions.githubusercontent.com"
+                        rekor:
+                          url: https://rekor.sigstore.dev
+              conditions:
+                - all:
+                    - key: "{{ author }}"
+                      operator: Equals
+                      value: "__REPO_URL__"

@@ -8,6 +8,17 @@
   "reason": "uuid < 11.1.1 en dependencias transitivas de bibliotecas de Google Cloud (el servicio usa uuid 14.0.2, corregida). El aviso afecta solo a v3()/v5()/v6() con buffer de salida y GitHub lo clasifica como Moderate (Trivy: Medium); Dependency-Check lo eleva a High. Se acepta hasta que las bibliotecas actualicen la dependencia.",
   "expires": "2027-03-31",
   "compensating_control": "El código propio de currencyservice y paymentservice no usa uuid.v3/v5/v6 con buffer de salida; Dependency-Check y Trivy siguen notificándolo en cada ejecución y la aceptación caduca para forzar su revisión.",
-  "reviewed": "2026-11-23"
+  "reviewed": "2026-11-23",
+  "vex": {
+   "vulnerability": "GHSA-w5hq-g745-h8pq",
+   "aliases": [
+    "CVE-2026-41907"
+   ],
+   "justification": "vulnerable_code_not_in_execute_path",
+   "subcomponents": [
+    "pkg:npm/uuid@8.3.2",
+    "pkg:npm/uuid@9.0.1"
+   ]
+  }
  }
 ]
