@@ -318,7 +318,7 @@ def vex(d):
     dirs = sorted(d.glob("container-*"))
     if not dirs:
         return None
-    out = {"por_servicio": {}, "suprimidos": []}
+    out, seen = {"por_servicio": {}, "suprimidos": []}, set()
     for sd in dirs:
         svc = sd.name.removeprefix("container-")
         c_sin, _ = trivy(sd / "trivy-image.json")
@@ -329,11 +329,18 @@ def vex(d):
         data = load(sd / "trivy-image-vex.json") or {}
         for res in data.get("Results", []) or []:
             for v in res.get("ExperimentalModifiedFindings", []) or []:
-                if (v.get("Status") or "").lower() in ("notaffected", "not_affected"):
-                    out["suprimidos"].append({"svc": svc, "id": v.get("VulnerabilityID"),
-                                              "pkg": v.get("PkgName"), "ver": v.get("InstalledVersion"),
-                                              "sev": norm(v.get("Severity")),
-                                              "source": v.get("Source") or v.get("Statement")})
+                if (v.get("Status") or "").lower() not in ("notaffected", "not_affected"):
+                    continue
+                f = v.get("Finding") or {}
+                key = (svc, f.get("VulnerabilityID"), f.get("PkgName"), f.get("InstalledVersion"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                out["suprimidos"].append({"svc": svc, "id": f.get("VulnerabilityID"),
+                                          "pkg": f.get("PkgName"), "ver": f.get("InstalledVersion"),
+                                          "sev": norm(f.get("Severity")),
+                                          "justificacion": v.get("Statement"),
+                                          "purl": (f.get("PkgIdentifier") or {}).get("PURL")})
     tot_sin = sum(v["sin_vex"] for v in out["por_servicio"].values())
     tot_con = sum(v["con_vex"] for v in out["por_servicio"].values())
     out["total"] = {"sin_vex": tot_sin, "con_vex": tot_con, "diferencia": tot_sin - tot_con}
