@@ -510,11 +510,14 @@ jobs:
         run: |
           # 1) Imagen de nuestro registro sin firmar: debe ser rechazada por verify-image-signatures
           docker pull -q busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+          # El digest se resuelve en el registro: .RepoDigests devuelve el de la imagen de origen,
+          # que no existe en el repositorio de prueba y dejaría la referencia colgando
+          pushed() { docker buildx imagetools inspect "$1" --format '{{.Manifest.Digest}}'; }
           unsigned="${REGISTRY,,}/unsigned-test:${{ github.sha }}"
           docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$unsigned"
           docker push -q "$unsigned"
           # Por digest, para que el rechazo se deba a la firma y no a la política de digest
-          unsigned="${unsigned%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$unsigned" | cut -d@ -f2)"
+          unsigned="${unsigned%:*}@$(pushed "$unsigned")"
           if kubectl -n boutique run unsigned-test --image="$unsigned" --restart=Never \
                --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$unsigned"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
                > admission/neg-unsigned.txt 2>&1; then
@@ -524,7 +527,7 @@ jobs:
           nosbom="${REGISTRY,,}/nosbom-test:${{ github.sha }}"
           docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$nosbom"
           docker push -q "$nosbom"
-          nosbom_ref="${nosbom%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$nosbom" | cut -d@ -f2)"
+          nosbom_ref="${nosbom%:*}@$(pushed "$nosbom")"
           cosign sign --yes "$nosbom_ref"
           if kubectl -n boutique run nosbom-test --image="$nosbom_ref" --restart=Never \
                --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"t","image":"'"$nosbom_ref"'","command":["sleep","5"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' \
@@ -535,7 +538,7 @@ jobs:
           novex="${REGISTRY,,}/novex-test:${{ github.sha }}"
           docker tag busybox@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 "$novex"
           docker push -q "$novex"
-          novex_ref="${novex%:*}@$(docker inspect --format='{{index .RepoDigests 0}}' "$novex" | cut -d@ -f2)"
+          novex_ref="${novex%:*}@$(pushed "$novex")"
           mkdir -p novex
           docker run --rm -e TRIVY_USERNAME="${{ github.actor }}" -e TRIVY_PASSWORD="${{ github.token }}" \
             -v "$PWD/novex:/out" "$TRIVY_IMAGE" image --format cyclonedx \
